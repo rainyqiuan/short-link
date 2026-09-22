@@ -32,6 +32,7 @@
 ## 本地运行
 
 > 待补：环境搭建完成后补充启动步骤（MySQL / Redis 由 `docker compose up -d` 拉起）。
+> 运行前需配置这两个环境变量：`MYSQL_ROOT_PASSWORD`、`REDIS_PASSWORD`
 
 ## 开发日志
 
