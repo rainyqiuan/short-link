@@ -2,6 +2,10 @@
 -- 高并发短链平台 · 数据库设计
 -- DB: MySQL 8.0    Charset: utf8mb4    Engine: InnoDB
 --
+-- ⚠️ 库名统一为 `shortlink`（与 docker-compose 的 MYSQL_DATABASE、application.yml 的
+--    连接串保持一致）。容器里的 `shortlink` 账号只被授权访问这个库，写成别的名字会
+--    报 Access denied。
+--
 -- 表清单
 --   t_short_link        短链映射（核心表）
 --   t_link_access_log   访问明细（写多读少，量大）
@@ -15,11 +19,11 @@
 --   3. 短码用唯一索引兜底 —— 应用层发号可能重复，最终一致性由 DB 保证。
 -- ============================================================================
 
-CREATE DATABASE IF NOT EXISTS short_link
+CREATE DATABASE IF NOT EXISTS shortlink
   DEFAULT CHARACTER SET utf8mb4
   DEFAULT COLLATE utf8mb4_0900_ai_ci;
 
-USE short_link;
+USE shortlink;
 
 -- ---------------------------------------------------------------------------
 -- 1. 短链映射表
