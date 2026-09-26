@@ -13,6 +13,7 @@ import com.itqiuan.shortlink.entity.ShortLink;
 import com.itqiuan.shortlink.mapper.ShortLinkMapper;
 import com.itqiuan.shortlink.service.SeqGenerator;
 import com.itqiuan.shortlink.service.ShortLinkService;
+import com.itqiuan.shortlink.service.support.ShortLinkClassifier;
 import com.itqiuan.shortlink.vo.ShortLinkVO;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -44,6 +45,8 @@ public class ShortLinkServiceImpl implements ShortLinkService {
     private SeqGenerator seqGenerator;
     @Autowired
     private TransactionTemplate transactionTemplate;
+    @Autowired
+    private ShortLinkClassifier shortLinkClassifier;
 
     /**
      * 创建短链。
@@ -132,7 +135,7 @@ public class ShortLinkServiceImpl implements ShortLinkService {
      * 调用方保证入参非 null。
      */
     private ShortLinkVO resolveExisting(ShortLink shortLink) {
-        switch (classify(shortLink)) {
+        switch (shortLinkClassifier.classify(shortLink)) {
             case REUSABLE:
                 return shortLinkConverter.toShortLinkVO(shortLink);
             case DISABLED:
@@ -170,19 +173,4 @@ public class ShortLinkServiceImpl implements ShortLinkService {
         return shortLinkMapper.selectById(shortLink.getId());
     }
 
-    private LinkUsabilityEnum classify(ShortLink shortLink) {
-        if (shortLink == null) {
-            return LinkUsabilityEnum.NOT_FOUND;
-        }
-        if (shortLink.getStatus() == LinkStatusEnum.NORMAL.getCode() && (shortLink.getExpireTime() == null || shortLink.getExpireTime().isAfter(LocalDateTime.now()))) {
-            return LinkUsabilityEnum.REUSABLE;
-        }
-        if (shortLink.getStatus() == LinkStatusEnum.DISABLE.getCode()) {
-            return LinkUsabilityEnum.DISABLED;
-        }
-        if (shortLink.getExpireTime() != null && shortLink.getExpireTime().isBefore(LocalDateTime.now())) {
-            return LinkUsabilityEnum.EXPIRED;
-        }
-        return LinkUsabilityEnum.UNKNOWN;
-    }
 }
