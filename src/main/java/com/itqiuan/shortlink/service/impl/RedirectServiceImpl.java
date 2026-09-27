@@ -20,11 +20,11 @@ public class RedirectServiceImpl implements RedirectService {
 
     @Override
     public ShortLinkCheckResult redirect(String shortCode) {
-        ShortLink shortLink= shortLinkMapper.selectOne(new LambdaQueryWrapper<ShortLink>().eq(ShortLink::getShortCode, shortCode));
-        return setShortLinkCheckResult(shortLink);
+        ShortLink shortLink = shortLinkMapper.selectOne(new LambdaQueryWrapper<ShortLink>().eq(ShortLink::getShortCode, shortCode));
+        return toCheckResult(shortLink);
     }
 
-    private ShortLinkCheckResult setShortLinkCheckResult(ShortLink shortLink) {
+    private ShortLinkCheckResult toCheckResult(ShortLink shortLink) {
         switch (shortLinkClassifier.classify(shortLink)) {
             case REUSABLE:
                 return ShortLinkCheckResult.success(shortLink.getOriginUrl());

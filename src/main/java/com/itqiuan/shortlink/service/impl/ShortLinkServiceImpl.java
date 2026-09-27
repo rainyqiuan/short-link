@@ -1,7 +1,6 @@
 package com.itqiuan.shortlink.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.itqiuan.shortlink.common.enums.LinkUsabilityEnum;
 import com.itqiuan.shortlink.common.enums.LinkStatusEnum;
 import com.itqiuan.shortlink.common.exception.BusinessException;
 import com.itqiuan.shortlink.common.result.ResultCode;
@@ -22,11 +21,11 @@ import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.util.StringUtils;
-
-import java.time.LocalDateTime;
+import org.springframework.validation.annotation.Validated;
 
 @Slf4j
 @Service
+@Validated
 public class ShortLinkServiceImpl implements ShortLinkService {
 
     // 62^5 = 916132832
@@ -63,9 +62,7 @@ public class ShortLinkServiceImpl implements ShortLinkService {
 
         // ---------- 0. service 层兜底校验（controller 的 @Valid 管不到内部调用）----------
         String originUrl = shortLinkCreateDTO.getOriginUrl();
-        if (!StringUtils.hasText(originUrl)) {
-            throw new BusinessException(ResultCode.PARAM_ERROR, "原始地址不能为空");
-        }
+
         String md5 = Md5Util.toMd5(originUrl);
         boolean hasCustomCode = StringUtils.hasText(shortLinkCreateDTO.getCustomCode());
 
@@ -162,10 +159,6 @@ public class ShortLinkServiceImpl implements ShortLinkService {
 
     private ShortLink selectByMd5(String md5) {
         return shortLinkMapper.selectOne(new LambdaQueryWrapper<ShortLink>().eq(ShortLink::getOriginUrlMd5, md5));
-    }
-
-    private ShortLink selectByShortCode(String code) {
-        return shortLinkMapper.selectOne(new LambdaQueryWrapper<ShortLink>().eq(ShortLink::getShortCode, code));
     }
 
     private ShortLink persist(ShortLink shortLink) {

@@ -32,6 +32,9 @@ public enum ResultCode {
     SHORT_LINK_DISABLED(40007, "短链已被禁用"),
     SHORT_LINK_EXPIRED(40008, "短链已过期"),
     TRIGGER_RATE_LIMIT(40009, "触发限流"),
+    RESOURCE_NOT_EXIST(40010, "资源不存在"),
+    REQUEST_METHOD_NOT_SUPPORTED(40011, "请求方法不支持"),
+    CONTENT_TYPE_NOT_SUPPORTED(40012, "内容类型不支持"),
 
     // ===== 500xx 服务端问题 =====
     SYSTEM_ERROR(50000, "系统异常"),
