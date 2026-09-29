@@ -28,6 +28,13 @@
 --      另注：origin_url_md5 必须保持 NOT NULL —— 释放靠的是表达式取 NULL，
 --      和「列本身可否为空」无关；而列一旦可空，应用层漏赋值就会静默插入
 --      md5=NULL 的行，幂等悄悄失效且不再报错。
+--   5. 过期链接的清理只做「逻辑删除」（del_flag=1），绝不物理删除：
+--        物理删会释放 uk_short_code 的占位 → 旧短码被新链接复用 → 原短码的
+--        访问者被跳到别人的链接，属安全事故；逻辑删则两个索引各司其职 ——
+--        uk_short_code 继续占位（短码永不复用），函数索引取 NULL 自动释放
+--        幂等位（同一 URL 可重建短链）。实测：del_flag 置 1 后同一 md5 可再次插入。
+--      idx_expire_time 是给清理任务的范围扫描（expire_time < ?）准备的；
+--      注意 MySQL 索引不存 NULL → 「永久有效」的行天然不在该索引内。
 -- ============================================================================
 
 CREATE DATABASE IF NOT EXISTS shortlink
@@ -55,7 +62,8 @@ CREATE TABLE t_short_link
     PRIMARY KEY (id),
     UNIQUE KEY uk_short_code (short_code) COMMENT '短码唯一，发号重复时兜底',
     UNIQUE KEY uk_origin_url_md5 ((IF(del_flag = 0, origin_url_md5, NULL))) COMMENT '同一长链只生成一个短码（幂等）；已删除的行索引值为 NULL，自动释放去重位',
-    KEY idx_create_time (create_time) COMMENT '后台按创建时间倒序分页'
+    KEY idx_create_time (create_time) COMMENT '后台按创建时间倒序分页',
+    KEY idx_expire_time (expire_time) COMMENT '过期清理任务范围扫描（expire_time < ?），兼作后台按过期时间排序'
 ) ENGINE = InnoDB
   DEFAULT CHARSET = utf8mb4
   COLLATE = utf8mb4_0900_ai_ci COMMENT ='短链映射表';

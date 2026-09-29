@@ -60,7 +60,7 @@ public class ShortLinkServiceImpl implements ShortLinkService {
     @Override
     public ShortLinkVO createShortLink(ShortLinkCreateDTO shortLinkCreateDTO) {
 
-        // ---------- 0. service 层兜底校验（controller 的 @Valid 管不到内部调用）----------
+        // ---------- 0. 预取 / 派生参数（校验由 DTO 注解在 controller 与 service 两个入口统一负责）----------
         String originUrl = shortLinkCreateDTO.getOriginUrl();
 
         String md5 = Md5Util.toMd5(originUrl);
