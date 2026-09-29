@@ -6,6 +6,7 @@ import com.itqiuan.shortlink.mapper.ShortLinkMapper;
 import com.itqiuan.shortlink.service.ExpireCleanService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.DataAccessException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -24,31 +25,57 @@ public class ExpireCleanServiceImpl implements ExpireCleanService {
 
     @Override
     public void cleanExpired(int batchSize, int maxRound) {
-        if (batchSize <= 0 || maxRound <= 0){
+        if (batchSize <= 0 || maxRound <= 0) {
             throw new IllegalArgumentException("batchSize和maxRound必须大于0");
         }
         LocalDateTime cutoff = LocalDateTime.now();
         LocalDateTime startedAt = LocalDateTime.now();
         int deletedCount = 0;
-        for (int batch = 0; batch < maxRound; batch++) {
-            try {
-                List<Long> expireIds = shortLinkMapper.selectList(new LambdaQueryWrapper<ShortLink>()
-                                .select(ShortLink::getId).orderByAsc(ShortLink::getId)
-                                .lt(ShortLink::getExpireTime, cutoff).last("limit " + batchSize))
-                        .stream()
-                        .map(ShortLink::getId)
-                        .toList();
-                int result = transactionTemplate.execute(status -> {
-                    return shortLinkMapper.deleteByIds(expireIds);
-                });
-                deletedCount += result;
-                if (expireIds.size() < batchSize) {
+        Status transactionStatus = Status.LIMIT;
+        try {
+            for (int batch = 0; batch < maxRound; batch++) {
+                try {
+                    List<Long> expireIds = shortLinkMapper.selectList(new LambdaQueryWrapper<ShortLink>()
+                                    .select(ShortLink::getId).orderByAsc(ShortLink::getId)
+                                    .lt(ShortLink::getExpireTime, cutoff).last("limit " + batchSize))
+                            .stream()
+                            .map(ShortLink::getId)
+                            .toList();
+                    int result = transactionTemplate.execute(status -> {
+                        return shortLinkMapper.deleteByIds(expireIds);
+                    });
+                    deletedCount += result;
+                    if (expireIds.size() < batchSize) {
+                        transactionStatus = Status.CLEARED;
+                        break;
+                    }
+                } catch (DataAccessException e) {
+                    transactionStatus = Status.ABORTED;
+                    log.error("清理过期数据时发生异常", e);
                     break;
                 }
-            } catch (Exception e) {
-                log.error("清理过期数据时发生异常", e);
             }
+        } finally {
+            switch (transactionStatus) {
+                case CLEARED:
+                    log.info("已删除 {} 条过期数据，耗时 {} ms", deletedCount, Duration.between(startedAt, LocalDateTime.now()).toMillis());
+                    break;
+                case LIMIT:
+                    log.info("已删除 {} 条过期数据,达到轮次上限,可能还有剩余，耗时 {} ms", deletedCount, Duration.between(startedAt, LocalDateTime.now()).toMillis());
+                    break;
+                case ABORTED:
+                    log.info("清理过期数据时发生异常，已删除 {} 条过期数据，耗时 {} ms", deletedCount, Duration.between(startedAt, LocalDateTime.now()).toMillis());
+                    break;
+            }
+
         }
-        log.info("已删除 {} 条过期数据,耗时 {} ms", deletedCount, Duration.between(startedAt, LocalDateTime.now()).toMillis());
     }
+
+    enum Status {
+        CLEARED,        // 清理完成
+        LIMIT,          // 达到轮次上限
+        ABORTED         // 中断
+    }
+
+
 }
