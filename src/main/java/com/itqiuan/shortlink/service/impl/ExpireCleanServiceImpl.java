@@ -8,18 +8,17 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataAccessException;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
-import java.util.List;
 
+/**
+ * @author qiuan
+ */
 @Slf4j
 @Service
 public class ExpireCleanServiceImpl implements ExpireCleanService {
 
-    @Autowired
-    private TransactionTemplate transactionTemplate;
     @Autowired
     private ShortLinkMapper shortLinkMapper;
 
@@ -33,19 +32,12 @@ public class ExpireCleanServiceImpl implements ExpireCleanService {
         int deletedCount = 0;
         Status transactionStatus = Status.LIMIT;
         try {
-            for (int batch = 0; batch < maxRound; batch++) {
+            for (int i = 0; i < maxRound; i++) {
                 try {
-                    List<Long> expireIds = shortLinkMapper.selectList(new LambdaQueryWrapper<ShortLink>()
-                                    .select(ShortLink::getId).orderByAsc(ShortLink::getId)
-                                    .lt(ShortLink::getExpireTime, cutoff).last("limit " + batchSize))
-                            .stream()
-                            .map(ShortLink::getId)
-                            .toList();
-                    int result = transactionTemplate.execute(status -> {
-                        return shortLinkMapper.deleteByIds(expireIds);
-                    });
-                    deletedCount += result;
-                    if (expireIds.size() < batchSize) {
+                    int size = shortLinkMapper.delete(new LambdaQueryWrapper<ShortLink>()
+                            .lt(ShortLink::getExpireTime, cutoff).last("limit " + batchSize));
+                    deletedCount += size;
+                    if (size < batchSize) {
                         transactionStatus = Status.CLEARED;
                         break;
                     }
@@ -56,25 +48,28 @@ public class ExpireCleanServiceImpl implements ExpireCleanService {
                 }
             }
         } finally {
+            long costMs = Duration.between(startedAt, LocalDateTime.now()).toMillis();
             switch (transactionStatus) {
                 case CLEARED:
-                    log.info("已删除 {} 条过期数据，耗时 {} ms", deletedCount, Duration.between(startedAt, LocalDateTime.now()).toMillis());
+                    log.info("已删除 {} 条过期数据，耗时 {} ms", deletedCount, costMs);
                     break;
                 case LIMIT:
-                    log.info("已删除 {} 条过期数据,达到轮次上限,可能还有剩余，耗时 {} ms", deletedCount, Duration.between(startedAt, LocalDateTime.now()).toMillis());
+                    log.info("已删除 {} 条过期数据，达到轮次上限，可能还有剩余，耗时 {} ms", deletedCount, costMs);
                     break;
                 case ABORTED:
-                    log.info("清理过期数据时发生异常，已删除 {} 条过期数据，耗时 {} ms", deletedCount, Duration.between(startedAt, LocalDateTime.now()).toMillis());
+                    log.warn("清理过期数据时发生异常，已删除 {} 条过期数据，耗时 {} ms", deletedCount, costMs);
                     break;
             }
 
         }
     }
-
-    enum Status {
-        CLEARED,        // 清理完成
-        LIMIT,          // 达到轮次上限
-        ABORTED         // 中断
+    private enum Status {
+        // 清理完成
+        CLEARED,
+        // 达到轮次上限
+        LIMIT,
+        // 中断
+        ABORTED
     }
 
 
