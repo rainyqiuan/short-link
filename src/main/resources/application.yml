@@ -7,6 +7,13 @@ spring:
     username: shortlink
     password: ${MYSQL_PASSWORD}
 
+    hikari:
+      # 核心：在连接池初始化每一个连接时，都执行这句 SQL
+      # 这样池子里的所有连接，锁等待超时时间都被强制设为 5 秒
+      # 理由：@Scheduled默认线程池 size = 1，定时任务串行一次卡 50 秒会堵住后面所有定时任务；
+      #     清理跑凌晨2点低峰、几乎没有并发写，5秒足够。
+      connection-init-sql: "SET SESSION innodb_lock_wait_timeout = 5"
+
   data:
     redis:
       host: localhost
@@ -32,3 +39,8 @@ mybatis-plus:
 
 app:
   short-domain: http://s.xx.com/
+
+short-link:
+  batch-size: 500      # 每批删除数量
+  max-round: 20        # 最大循环次数
+  clean-cron: 0 0 2 * * ?
