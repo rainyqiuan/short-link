@@ -16,6 +16,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataAccessException;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
+
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.concurrent.ThreadLocalRandom;
@@ -69,9 +70,9 @@ public class RedirectServiceImpl implements RedirectService {
                     stringRedisTemplate.opsForValue().set(key, objectMapper.writeValueAsString(shortLinkCacheBO), ttlSeconds, TimeUnit.SECONDS);
                 }
             } catch (JsonProcessingException e) {
-                log.error("写缓存序列化失败",e);
+                log.error("写缓存序列化失败", e);
             } catch (DataAccessException e) {
-                log.error("写缓存失败",e);
+                log.error("写缓存失败", e);
             }
         }
         return toCheckResult(shortLinkCacheBO);
@@ -87,7 +88,9 @@ public class RedirectServiceImpl implements RedirectService {
         };
     }
 
-    /** 计算缓存 TTL（秒）。返回 null 表示"这次不写缓存"。 */
+    /**
+     * 计算缓存 TTL（秒）。返回 null 表示"这次不写缓存"。
+     */
     private Long calcTtlSeconds(LocalDateTime expireTime) {
         if (expireTime == null) {
             // "永不过期"：基准值 + 抖动（不存在活过 expire_time 的问题，方向随意）
