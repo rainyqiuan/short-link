@@ -24,4 +24,16 @@ public class ShortLinkClassifier {
         }
         return LinkUsabilityEnum.UNKNOWN;
     }
+    public LinkUsabilityEnum classify(int status, LocalDateTime expireTime) {
+        if (status == LinkStatusEnum.NORMAL.getCode() && (expireTime == null || expireTime.isAfter(LocalDateTime.now()))) {
+            return LinkUsabilityEnum.REUSABLE;
+        }
+        if (status == LinkStatusEnum.DISABLE.getCode()) {
+            return LinkUsabilityEnum.DISABLED;
+        }
+        if (expireTime != null && expireTime.isBefore(LocalDateTime.now())) {
+            return LinkUsabilityEnum.EXPIRED;
+        }
+        return LinkUsabilityEnum.UNKNOWN;
+    }
 }

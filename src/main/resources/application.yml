@@ -21,6 +21,7 @@ spring:
       password: ${REDIS_PASSWORD}
       database: 0
       connect-timeout: 3000ms
+      timeout: 3000ms
 
   config:
     import: optional:file:./.env[.properties]
