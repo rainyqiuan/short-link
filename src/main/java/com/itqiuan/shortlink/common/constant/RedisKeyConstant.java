@@ -7,5 +7,9 @@ public class RedisKeyConstant {
 
     public static final String LIMIT="shortlink:limit:{ip}";
 
+    public static final String BLOOM = "shortlink:bloom";
+
+    public static final String BLOOM_READY = "shortlink:bloom:ready";
+
     private RedisKeyConstant() {}
 }

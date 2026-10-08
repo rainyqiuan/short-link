@@ -9,6 +9,7 @@ import com.itqiuan.shortlink.common.constant.RedisKeyConstant;
 import com.itqiuan.shortlink.common.enums.LinkUsabilityEnum;
 import com.itqiuan.shortlink.entity.ShortLink;
 import com.itqiuan.shortlink.mapper.ShortLinkMapper;
+import com.itqiuan.shortlink.service.BloomFilterService;
 import com.itqiuan.shortlink.service.RedirectService;
 import com.itqiuan.shortlink.service.support.ShortLinkClassifier;
 import lombok.extern.slf4j.Slf4j;
@@ -31,6 +32,8 @@ public class RedirectServiceImpl implements RedirectService {
     @Autowired
     private ShortLinkClassifier shortLinkClassifier;
     @Autowired
+    private BloomFilterService bloomFilterService;
+    @Autowired
     private StringRedisTemplate stringRedisTemplate;
     @Autowired
     private ObjectMapper objectMapper;
@@ -42,6 +45,9 @@ public class RedirectServiceImpl implements RedirectService {
 
     @Override
     public ShortLinkCheckResult redirect(String shortCode) {
+        if (!bloomFilterService.mightContain(shortCode)) {
+            return ShortLinkCheckResult.fail(LinkUsabilityEnum.NOT_FOUND);
+        }
         String key = RedisKeyConstant.BUFFER + shortCode;
         ShortLinkCacheBO shortLinkCacheBO = null;
         boolean cacheReadOk = true;

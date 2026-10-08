@@ -10,6 +10,7 @@ import com.itqiuan.shortlink.converter.ShortLinkConverter;
 import com.itqiuan.shortlink.dto.ShortLinkCreateDTO;
 import com.itqiuan.shortlink.entity.ShortLink;
 import com.itqiuan.shortlink.mapper.ShortLinkMapper;
+import com.itqiuan.shortlink.service.BloomFilterService;
 import com.itqiuan.shortlink.service.SeqGenerator;
 import com.itqiuan.shortlink.service.ShortLinkService;
 import com.itqiuan.shortlink.service.support.ShortLinkClassifier;
@@ -46,6 +47,8 @@ public class ShortLinkServiceImpl implements ShortLinkService {
     private TransactionTemplate transactionTemplate;
     @Autowired
     private ShortLinkClassifier shortLinkClassifier;
+    @Autowired
+    private BloomFilterService bloomFilterService;
 
     /**
      * 创建短链。
@@ -77,8 +80,12 @@ public class ShortLinkServiceImpl implements ShortLinkService {
             // 组装放在事务外：事务里只留数据库操作，事务越短越好
             ShortLink toInsert = buildForInsert(shortLinkCreateDTO, md5, hasCustomCode);
             try {
-                return transactionTemplate.execute(
+                ShortLinkVO execute = transactionTemplate.execute(
                         status -> shortLinkConverter.toShortLinkVO(persist(toInsert)));
+                if (execute != null) {
+                    bloomFilterService.addToBloomFilter(execute.getShortCode());
+                }
+                return execute;
             } catch (DuplicateKeyException e) {
                 // 归因不看库、只看异常里的索引名（RR 下同事务回查看不见并发赢家）
                 if (isOriginUrlMd5Conflict(e)) {
