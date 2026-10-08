@@ -45,3 +45,5 @@ short-link:
   batch-size: 500      # 每批删除数量
   max-round: 20        # 最大循环次数
   clean-cron: 0 0 2 * * ?
+  flush-batch-size: 1000
+  flush-cron: 0 */5 * * * ?

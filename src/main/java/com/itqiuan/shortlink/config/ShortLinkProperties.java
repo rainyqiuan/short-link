@@ -16,4 +16,8 @@ public class ShortLinkProperties {
 
     @Min(value = 1, message = "maxRound 必须大于 0")
     private int maxRound;
+
+    @Min(value = 1, message = "flushBatchSize 必须大于 0")
+    private int flushBatchSize;
+
 }

@@ -9,6 +9,7 @@ import com.itqiuan.shortlink.common.constant.RedisKeyConstant;
 import com.itqiuan.shortlink.common.enums.LinkUsabilityEnum;
 import com.itqiuan.shortlink.entity.ShortLink;
 import com.itqiuan.shortlink.mapper.ShortLinkMapper;
+import com.itqiuan.shortlink.service.AccessLogService;
 import com.itqiuan.shortlink.service.BloomFilterService;
 import com.itqiuan.shortlink.service.RedirectService;
 import com.itqiuan.shortlink.service.support.ShortLinkClassifier;
@@ -37,6 +38,8 @@ public class RedirectServiceImpl implements RedirectService {
     private StringRedisTemplate stringRedisTemplate;
     @Autowired
     private ObjectMapper objectMapper;
+    @Autowired
+    private AccessLogService accessLogService;
     // 基准 TTL：24 小时
     private static final long BASE_TTL_SECONDS = 86400L;
     // 抖动幅度：最多提前 1 小时
@@ -81,7 +84,15 @@ public class RedirectServiceImpl implements RedirectService {
                 log.error("写缓存失败", e);
             }
         }
-        return toCheckResult(shortLinkCacheBO);
+        ShortLinkCheckResult checkResult = toCheckResult(shortLinkCacheBO);
+        if (checkResult.getLinkUsabilityEnum() == LinkUsabilityEnum.REUSABLE) {
+            try {
+                accessLogService.record(shortCode);
+            } catch (Exception e) {
+                log.error("记录访问日志失败", e);
+            }
+        }
+        return checkResult;
     }
 
     private ShortLinkCheckResult toCheckResult(ShortLinkCacheBO shortLinkCacheBO) {
