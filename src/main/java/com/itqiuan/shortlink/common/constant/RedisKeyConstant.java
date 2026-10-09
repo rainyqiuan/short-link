@@ -11,5 +11,9 @@ public class RedisKeyConstant {
 
     public static final String ACCESS_QUEUE = "shortlink:access:queue";
 
+    public static final String LIMIT = "shortlink:limit:";
+
+    public static final String TEST_INIT = "shortlink:test:init:key";
+
     private RedisKeyConstant() {}
 }

@@ -1,6 +1,7 @@
 package com.itqiuan.shortlink.controller;
 
 import com.itqiuan.shortlink.bo.ShortLinkCheckResult;
+import com.itqiuan.shortlink.common.annotation.RateLimit;
 import com.itqiuan.shortlink.common.enums.LinkUsabilityEnum;
 import com.itqiuan.shortlink.common.result.Result;
 import com.itqiuan.shortlink.common.result.ResultCode;
@@ -22,6 +23,7 @@ public class ShortLinkRedirectController {
     @Autowired
     private RedirectService redirectService;
 
+    @RateLimit(route = "redirect")
     @GetMapping("/{code:[0-9a-zA-Z]{4,16}}")
     public ResponseEntity<Result<Object>> redirect(@PathVariable("code") String shortCode) {
         ShortLinkCheckResult redirect = redirectService.redirect(shortCode);

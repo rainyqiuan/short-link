@@ -47,3 +47,5 @@ short-link:
   clean-cron: 0 0 2 * * ?
   flush-batch-size: 1000
   flush-cron: 0 */5 * * * ?
+  limit-capacity: 20
+  limit-refill-rate: 10

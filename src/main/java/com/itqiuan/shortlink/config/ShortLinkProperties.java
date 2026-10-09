@@ -20,4 +20,9 @@ public class ShortLinkProperties {
     @Min(value = 1, message = "flushBatchSize 必须大于 0")
     private int flushBatchSize;
 
+    @Min(value = 1, message = "limitCapacity 必须大于 0")
+    private int limitCapacity;
+
+    @Min(value = 1, message = "limitRefillRate 必须大于 0")
+    private int limitRefillRate;
 }
