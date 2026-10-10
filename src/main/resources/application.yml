@@ -49,3 +49,7 @@ short-link:
   flush-cron: 0 */5 * * * ?
   limit-capacity: 20
   limit-refill-rate: 10
+  stats-cron: 0 3/10 * * * ?
+  stats-lookback-days: 3
+  uv-ttl-seconds: 604800
+

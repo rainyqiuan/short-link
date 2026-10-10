@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.itqiuan.shortlink.mapper.LinkAccessLogMapper">
+    <select id="selectPvByDateRange" resultType="com.itqiuan.shortlink.entity.LinkStatsDaily">
+        SELECT
+            short_code AS shortCode,
+            stat_date AS statDate,
+            COUNT(*) AS pv
+        FROM t_link_access_log
+        WHERE stat_date BETWEEN #{start} AND #{end}
+        GROUP BY short_code, stat_date
+    </select>
+</mapper>

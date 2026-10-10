@@ -1,5 +1,7 @@
 package com.itqiuan.shortlink.common.constant;
 
+import java.time.LocalDate;
+
 public class RedisKeyConstant {
     public static final String SEQ = "shortlink:seq";
 
@@ -15,5 +17,12 @@ public class RedisKeyConstant {
 
     public static final String TEST_INIT = "shortlink:test:init:key";
 
-    private RedisKeyConstant() {}
+    public static final String UV = "shortlink:uv:";
+
+    public static String uvKey(String code, LocalDate date) {
+        return UV + code + ":" + date.toString();
+    }
+
+    private RedisKeyConstant() {
+    }
 }

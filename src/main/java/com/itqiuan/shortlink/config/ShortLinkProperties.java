@@ -25,4 +25,11 @@ public class ShortLinkProperties {
 
     @Min(value = 1, message = "limitRefillRate 必须大于 0")
     private int limitRefillRate;
+
+    @Min(value = 1, message = "statsLookbackDays 必须大于 0")
+    private int statsLookbackDays;
+
+    @Min(value = 1, message = "uvTtlSeconds 必须大于 0")
+    private int uvTtlSeconds;
+
 }

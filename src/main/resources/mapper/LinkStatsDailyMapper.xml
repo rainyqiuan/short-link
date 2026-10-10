@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.itqiuan.shortlink.mapper.LinkStatsDailyMapper">
+
+    <insert id="upsertBatch">
+        INSERT INTO t_link_stats_daily (short_code, stat_date, pv, uv) VALUES
+        <foreach collection="list" item="it" separator=",">
+            (#{it.shortCode}, #{it.statDate}, #{it.pv}, #{it.uv})
+        </foreach>
+        ON DUPLICATE KEY UPDATE pv = VALUES(pv), uv = GREATEST(uv, VALUES(uv))
+    </insert>
+
+</mapper>

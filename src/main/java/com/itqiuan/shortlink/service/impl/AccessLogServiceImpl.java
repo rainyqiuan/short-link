@@ -20,6 +20,7 @@ import org.springframework.web.context.request.RequestAttributes;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -79,6 +80,21 @@ public class AccessLogServiceImpl extends ServiceImpl<LinkAccessLogMapper, LinkA
             }
             return null;
         }).filter(accessLogBO -> accessLogBO != null).collect(Collectors.toList());
+        accessLogBOList.stream()
+                // 1. 分组：用逗号或者特定的对象作为分组键
+                .collect(Collectors.groupingBy(item -> item.getShortCode() + "_" + item.getStatDate()))
+                .forEach((groupKey, value) -> {
+                    // 2. 从 list 中提取真实的业务字段
+                    AccessLogBO firstItem = value.get(0);
+                    String shortCode = firstItem.getShortCode();
+                    // 3. 使用常量的唯一函数生成 Redis key
+                    String redisKey = RedisKeyConstant.uvKey(shortCode, firstItem.getStatDate());
+                    // 4. 写入 HLL
+                    stringRedisTemplate.opsForHyperLogLog()
+                            .add(redisKey, value.stream().map(AccessLogBO::getClientIp).distinct().toArray(String[]::new));
+                    stringRedisTemplate.expire(redisKey, Duration.ofSeconds(shortLinkProperties.getUvTtlSeconds()));
+
+                });
         List<LinkAccessLog> linkAccessLogList = accessLogBOList.stream().map(AccessLogServiceImpl::toEntity).collect(Collectors.toList());
         transactionTemplate.execute(status -> {
             saveBatch(linkAccessLogList);
