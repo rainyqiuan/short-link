@@ -35,6 +35,14 @@
 --        幂等位（同一 URL 可重建短链）。实测：del_flag 置 1 后同一 md5 可再次插入。
 --      idx_expire_time 是给清理任务的范围扫描（expire_time < ?）准备的；
 --      注意 MySQL 索引不存 NULL → 「永久有效」的行天然不在该索引内。
+--   6. short_code 必须用【大小写敏感】的排序规则（utf8mb4_bin），不能沿用库默认的
+--      utf8mb4_0900_ai_ci —— 短码是 Base62（62 个字符含大小写字母），语义上大小写敏感；
+--      而 _ai_ci 下 'A' 与 'a' 相等 → 唯一索引把 '10000A' 和 '10000a' 当成同一个值 →
+--      发号器一进入小写字母区就大面积撞号。实测（W6 压测造数）：造 3000 条失败 537 条
+--      = 17.9%，MySQL ER_DUP_ENTRY 累计 3382 次；且 seq 1..35 全部成功、从 seq 36
+--      （Base62 字母表第一个小写 'a'）开始崩 —— 这是"列语义必须与编码语义一致"的
+--      典型实例。更危险的是 WHERE short_code = ? 同样大小写不敏感 → 一旦库里出现
+--      大小写变体，短码会跳向别人的长链（目前被唯一索引挡住了，属"运气好"而非"设计对"）。
 -- ============================================================================
 
 CREATE DATABASE IF NOT EXISTS shortlink
@@ -50,7 +58,7 @@ DROP TABLE IF EXISTS t_short_link;
 CREATE TABLE t_short_link
 (
     id             BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '自增主键，仅内部使用',
-    short_code     VARCHAR(16)     NOT NULL COMMENT '短码，Base62 编码结果',
+    short_code     VARCHAR(16) COLLATE utf8mb4_bin NOT NULL COMMENT '短码，Base62 编码结果（必须大小写敏感，见设计要点 6）',
     seq_no         BIGINT UNSIGNED NULL COMMENT '发号器返回的序号，Base62 编码后即短码；自定义短码时为 NULL',
     origin_url     VARCHAR(2048)   NOT NULL COMMENT '原始长链接',
     origin_url_md5 CHAR(32)        NOT NULL COMMENT '长链接 MD5（小写），用于幂等去重；不设可空，漏赋值时 insert 直接报错',
