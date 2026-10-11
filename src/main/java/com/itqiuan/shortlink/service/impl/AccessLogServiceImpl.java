@@ -71,39 +71,93 @@ public class AccessLogServiceImpl extends ServiceImpl<LinkAccessLogMapper, LinkA
     @Override
     public void flush() {
         int maxFetch = shortLinkProperties.getFlushBatchSize();
-        List<String> range = stringRedisTemplate.opsForList().range(RedisKeyConstant.ACCESS_QUEUE, 0, maxFetch - 1);
-        long fetched = range.size();
-        //全部反序列化
-        List<AccessLogBO> accessLogBOList = range.stream().map(item -> {
-            try {
-                return objectMapper.readValue(item, AccessLogBO.class);
-            } catch (JsonProcessingException e) {
-                log.error("json反序列化失败", e);
+        int maxRound = shortLinkProperties.getMaxRound();
+
+        long startedAt = System.currentTimeMillis();
+        int totalFlushed = 0;
+        Status transactionStatus = Status.LIMIT;
+
+        try {
+            for (int i = 0; i < maxRound; i++) {
+                List<String> range = stringRedisTemplate.opsForList().range(RedisKeyConstant.ACCESS_QUEUE, 0, maxFetch - 1);
+                long fetched = range.size();
+
+                if (fetched == 0) {
+                    transactionStatus = Status.CLEARED;
+                    break;
+                }
+
+                //全部反序列化
+                List<AccessLogBO> accessLogBOList = range.stream().map(item -> {
+                    try {
+                        return objectMapper.readValue(item, AccessLogBO.class);
+                    } catch (JsonProcessingException e) {
+                        log.error("json反序列化失败", e);
+                    }
+                    return null;
+                }).filter(accessLogBO -> accessLogBO != null).collect(Collectors.toList());
+
+                accessLogBOList.stream()
+                        // 1. 分组：用逗号或者特定的对象作为分组键
+                        .collect(Collectors.groupingBy(item -> item.getShortCode() + "_" + item.getStatDate()))
+                        .forEach((groupKey, value) -> {
+                            // 2. 从 list 中提取真实的业务字段
+                            AccessLogBO firstItem = value.get(0);
+                            String shortCode = firstItem.getShortCode();
+                            // 3. 使用常量的唯一函数生成 Redis key
+                            String redisKey = RedisKeyConstant.uvKey(shortCode, firstItem.getStatDate());
+                            // 4. 写入 HLL
+                            stringRedisTemplate.opsForHyperLogLog()
+                                    .add(redisKey, value.stream().map(AccessLogBO::getClientIp).distinct().toArray(String[]::new));
+                            stringRedisTemplate.expire(redisKey, Duration.ofSeconds(shortLinkProperties.getUvTtlSeconds()));
+
+                        });
+
+                List<LinkAccessLog> linkAccessLogList = accessLogBOList.stream().map(AccessLogServiceImpl::toEntity).collect(Collectors.toList());
+                if (!linkAccessLogList.isEmpty()) {
+                    transactionTemplate.execute(status -> {
+                        saveBatch(linkAccessLogList);
+                        return null;
+                    });
+                    // 累加搬运条数
+                    totalFlushed += linkAccessLogList.size();
+                }
+
+                stringRedisTemplate.opsForList().trim(RedisKeyConstant.ACCESS_QUEUE, fetched, -1L);
+                if (fetched < maxFetch) {
+                    transactionStatus = Status.CLEARED;
+                    break;
+                }
+
             }
-            return null;
-        }).filter(accessLogBO -> accessLogBO != null).collect(Collectors.toList());
-        accessLogBOList.stream()
-                // 1. 分组：用逗号或者特定的对象作为分组键
-                .collect(Collectors.groupingBy(item -> item.getShortCode() + "_" + item.getStatDate()))
-                .forEach((groupKey, value) -> {
-                    // 2. 从 list 中提取真实的业务字段
-                    AccessLogBO firstItem = value.get(0);
-                    String shortCode = firstItem.getShortCode();
-                    // 3. 使用常量的唯一函数生成 Redis key
-                    String redisKey = RedisKeyConstant.uvKey(shortCode, firstItem.getStatDate());
-                    // 4. 写入 HLL
-                    stringRedisTemplate.opsForHyperLogLog()
-                            .add(redisKey, value.stream().map(AccessLogBO::getClientIp).distinct().toArray(String[]::new));
-                    stringRedisTemplate.expire(redisKey, Duration.ofSeconds(shortLinkProperties.getUvTtlSeconds()));
+        }catch (DataAccessException e){
+            transactionStatus = Status.ABORTED;
+            log.warn("数据访问失败", e);
+        } catch (RuntimeException e) {
+            transactionStatus = Status.ABORTED;
+            log.error("访问日志搬运过程中发生异常", e);
+            throw e;
+        } finally {
+            long costMs = System.currentTimeMillis() - startedAt;
+            switch (transactionStatus) {
+                case CLEARED:{
+                    if(totalFlushed==0){
+                        log.debug("访问日志搬运完成，但无数据入库，耗时 {} ms", costMs);
+                    }else{
+                        log.info("访问日志搬运完成，入库 {} 条，耗时 {} ms", totalFlushed, costMs);
+                    }
 
-                });
-        List<LinkAccessLog> linkAccessLogList = accessLogBOList.stream().map(AccessLogServiceImpl::toEntity).collect(Collectors.toList());
-        transactionTemplate.execute(status -> {
-            saveBatch(linkAccessLogList);
-            return null;
-        });
-        stringRedisTemplate.opsForList().trim(RedisKeyConstant.ACCESS_QUEUE, fetched, -1L);
+                }
 
+                    break;
+                case LIMIT:
+                    log.info("访问日志搬运达到轮次上限，入库 {} 条，可能还有剩余，耗时 {} ms", totalFlushed, costMs);
+                    break;
+                case ABORTED:
+                    log.warn("访问日志搬运异常中断，入库 {} 条，耗时 {} ms", totalFlushed, costMs);
+                    break;
+            }
+        }
     }
 
     private static String truncate(String s, int max) {
@@ -120,4 +174,14 @@ public class AccessLogServiceImpl extends ServiceImpl<LinkAccessLogMapper, LinkA
         linkAccessLog.setStatDate(accessLogBO.getStatDate());
         return linkAccessLog;
     }
+
+    private enum Status {
+        // 清理完成
+        CLEARED,
+        // 达到轮次上限
+        LIMIT,
+        // 中断
+        ABORTED
+    }
+
 }
