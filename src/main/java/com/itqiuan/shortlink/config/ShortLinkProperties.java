@@ -32,4 +32,8 @@ public class ShortLinkProperties {
     @Min(value = 1, message = "uvTtlSeconds 必须大于 0")
     private int uvTtlSeconds;
 
+    @Min(value = 1, message = "accessQueueMaxSize 必须大于 0")
+    private int accessQueueMaxSize;
+
+
 }

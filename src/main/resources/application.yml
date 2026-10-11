@@ -46,10 +46,11 @@ short-link:
   max-round: 20        # 最大循环次数
   clean-cron: 0 0 2 * * ?
   flush-batch-size: 1000
-  flush-cron: 0 */5 * * * ?
+  flush-cron: 0 * * * * ?
   limit-capacity: 20
   limit-refill-rate: 10
   stats-cron: 0 3/10 * * * ?
   stats-lookback-days: 3
+  access-queue-max-size: 100000
   uv-ttl-seconds: 604800
 

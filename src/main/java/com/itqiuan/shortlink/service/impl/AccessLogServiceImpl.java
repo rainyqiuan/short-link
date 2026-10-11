@@ -44,6 +44,7 @@ public class AccessLogServiceImpl extends ServiceImpl<LinkAccessLogMapper, LinkA
 
     @Override
     public void record(String shortCode) {
+
         RequestAttributes attrs = RequestContextHolder.getRequestAttributes();
         if (!(attrs instanceof ServletRequestAttributes sra)) {
             log.debug("非请求线程，跳过访问记录");
@@ -59,13 +60,16 @@ public class AccessLogServiceImpl extends ServiceImpl<LinkAccessLogMapper, LinkA
         accessLogBO.setAccessTime(now);
         accessLogBO.setStatDate(now.toLocalDate());
         try {
+            int accessQueueMaxSize = shortLinkProperties.getAccessQueueMaxSize();
             String accessLogBOJson = objectMapper.writeValueAsString(accessLogBO);
             stringRedisTemplate.opsForList().rightPush(RedisKeyConstant.ACCESS_QUEUE, accessLogBOJson);
+            stringRedisTemplate.opsForList().trim(RedisKeyConstant.ACCESS_QUEUE,  -accessQueueMaxSize, -1);
         } catch (JsonProcessingException e) {
             log.error("json序列化失败", e);
         } catch (DataAccessException e) {
             log.warn("redis连接异常", e);
         }
+
     }
 
     @Override
