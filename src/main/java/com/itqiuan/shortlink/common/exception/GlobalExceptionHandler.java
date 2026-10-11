@@ -12,8 +12,10 @@ import org.springframework.util.StringUtils;
 import org.springframework.validation.FieldError;
 import org.springframework.web.ErrorResponse;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 @Slf4j
 @RestControllerAdvice
@@ -45,8 +47,10 @@ public class GlobalExceptionHandler {
         }
 
         // 3. 提取出错字段和错误提示
-        String field = fieldError.getField();           // 获取出错字段名，如 expireTime
-        String message = fieldError.getDefaultMessage(); // 获取注解上的提示语
+        // 获取出错字段名，如 expireTime
+        String field = fieldError.getField();
+        // 获取注解上的提示语
+        String message = fieldError.getDefaultMessage();
         log.warn("参数校验失败 (body): 字段[{}], 提示[{}]", field, message);
 
         // 4. 按字段分流错误码
@@ -71,7 +75,8 @@ public class GlobalExceptionHandler {
         }
 
         // 3. 提取真实的字段路径 和 错误提示
-        String propertyPath = violation.getPropertyPath().toString(); // 可能是 "createShortLink.shortLinkCreateDTO.expireTime"
+        // 可能是 "createShortLink.shortLinkCreateDTO.expireTime"
+        String propertyPath = violation.getPropertyPath().toString();
         String message = violation.getMessage();
 
         // 4. 核心：调用公共方法解析错误码
@@ -80,6 +85,33 @@ public class GlobalExceptionHandler {
         log.warn("参数校验失败 (param): 路径[{}], 提示[{}], 分配错误码[{}]", propertyPath, message, errorCode);
 
         return Result.fail(errorCode, message);
+    }
+
+    //MethodArgumentTypeMismatchException	PARAM_FORMAT_ERROR(40002) —— "日期格式应为 yyyy-MM-dd"
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public Result<Void> handleMethodArgumentTypeMismatchException(MethodArgumentTypeMismatchException e) {
+        // 1. 动态获取参数名（比如 "startDate" 或 "pageNum"）
+        String paramName = e.getName();
+
+        // 2. 动态获取期望的目标类型（比如 "LocalDate" 或 "Integer"）
+        // 判空是因为某些极特殊情况下 e.getRequiredType() 可能为 null
+        String requiredType = e.getRequiredType() != null ? e.getRequiredType().getSimpleName() : "未知类型";
+
+        // 3. 拼接通用的错误提示
+        String message = String.format("参数 '%s' 类型错误，期望类型为 %s", paramName, requiredType);
+
+        // 4. 记录日志（根据之前的要求，使用 log.warn 并打印完整堆栈）
+        log.warn("参数类型转换失败: {}", paramName, e);
+
+        // 5. 返回统一的失败结果（保持 40002 错误码）
+        return Result.fail(ResultCode.PARAM_FORMAT_ERROR.getCode(), message);
+    }
+
+    //MissingServletRequestParameterException	PARAM_ERROR(40001) —— 指明缺哪个参数
+    @ExceptionHandler(MissingServletRequestParameterException.class)
+    public Result<Void> handleMissingServletRequestParameterException(MissingServletRequestParameterException e) {
+        log.warn("缺少必填参数：{}", e.getParameterName());
+        return Result.fail(ResultCode.PARAM_ERROR.getCode(), "缺少必填参数：" + e.getParameterName());
     }
 
     @ExceptionHandler(HttpMessageNotReadableException.class)
@@ -120,6 +152,7 @@ public class GlobalExceptionHandler {
                 }
             }
         }
+        log.error("未分类异常", e);
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Result.fail(ResultCode.SYSTEM_ERROR));
     }
 }
