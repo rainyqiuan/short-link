@@ -7,7 +7,6 @@ import com.itqiuan.shortlink.common.result.Result;
 import com.itqiuan.shortlink.common.result.ResultCode;
 import com.itqiuan.shortlink.service.RedirectService;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -20,8 +19,11 @@ import java.net.URI;
 @RestController
 public class ShortLinkRedirectController {
 
-    @Autowired
-    private RedirectService redirectService;
+    private final RedirectService redirectService;
+
+    public ShortLinkRedirectController(RedirectService redirectService) {
+        this.redirectService = redirectService;
+    }
 
     @RateLimit(route = "redirect")
     @GetMapping("/{code:[0-9a-zA-Z]{4,16}}")

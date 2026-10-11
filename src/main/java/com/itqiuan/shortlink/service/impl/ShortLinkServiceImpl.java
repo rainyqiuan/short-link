@@ -16,7 +16,6 @@ import com.itqiuan.shortlink.service.ShortLinkService;
 import com.itqiuan.shortlink.service.support.ShortLinkClassifier;
 import com.itqiuan.shortlink.vo.ShortLinkVO;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.ConcurrencyFailureException;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
@@ -37,18 +36,21 @@ public class ShortLinkServiceImpl implements ShortLinkService {
     // 去重用的唯一索引名：归因靠从异常 message 里读它
     private static final String UK_ORIGIN_URL_MD5 = "uk_origin_url_md5";
 
-    @Autowired
-    private ShortLinkConverter shortLinkConverter;
-    @Autowired
-    private ShortLinkMapper shortLinkMapper;
-    @Autowired
-    private SeqGenerator seqGenerator;
-    @Autowired
-    private TransactionTemplate transactionTemplate;
-    @Autowired
-    private ShortLinkClassifier shortLinkClassifier;
-    @Autowired
-    private BloomFilterService bloomFilterService;
+    private final ShortLinkConverter shortLinkConverter;
+    private final ShortLinkMapper shortLinkMapper;
+    private final SeqGenerator seqGenerator;
+    private final TransactionTemplate transactionTemplate;
+    private final ShortLinkClassifier shortLinkClassifier;
+    private final BloomFilterService bloomFilterService;
+
+    public ShortLinkServiceImpl(ShortLinkConverter shortLinkConverter, ShortLinkMapper shortLinkMapper, SeqGenerator seqGenerator, TransactionTemplate transactionTemplate, ShortLinkClassifier shortLinkClassifier, BloomFilterService bloomFilterService) {
+        this.shortLinkConverter = shortLinkConverter;
+        this.shortLinkMapper = shortLinkMapper;
+        this.seqGenerator = seqGenerator;
+        this.transactionTemplate = transactionTemplate;
+        this.shortLinkClassifier = shortLinkClassifier;
+        this.bloomFilterService = bloomFilterService;
+    }
 
     /**
      * 创建短链。

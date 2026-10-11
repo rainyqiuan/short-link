@@ -14,7 +14,6 @@ import com.itqiuan.shortlink.service.BloomFilterService;
 import com.itqiuan.shortlink.service.RedirectService;
 import com.itqiuan.shortlink.service.support.ShortLinkClassifier;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataAccessException;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
@@ -28,22 +27,25 @@ import java.util.concurrent.TimeUnit;
 @Slf4j
 public class RedirectServiceImpl implements RedirectService {
 
-    @Autowired
-    private ShortLinkMapper shortLinkMapper;
-    @Autowired
-    private ShortLinkClassifier shortLinkClassifier;
-    @Autowired
-    private BloomFilterService bloomFilterService;
-    @Autowired
-    private StringRedisTemplate stringRedisTemplate;
-    @Autowired
-    private ObjectMapper objectMapper;
-    @Autowired
-    private AccessLogService accessLogService;
+    private final ShortLinkMapper shortLinkMapper;
+    private final ShortLinkClassifier shortLinkClassifier;
+    private final BloomFilterService bloomFilterService;
+    private final StringRedisTemplate stringRedisTemplate;
+    private final ObjectMapper objectMapper;
+    private final AccessLogService accessLogService;
     // 基准 TTL：24 小时
     private static final long BASE_TTL_SECONDS = 86400L;
     // 抖动幅度：最多提前 1 小时
     private static final long JITTER_SECONDS = 3600L;
+
+    public RedirectServiceImpl(ShortLinkMapper shortLinkMapper, ShortLinkClassifier shortLinkClassifier, BloomFilterService bloomFilterService, StringRedisTemplate stringRedisTemplate, ObjectMapper objectMapper, AccessLogService accessLogService) {
+        this.shortLinkMapper = shortLinkMapper;
+        this.shortLinkClassifier = shortLinkClassifier;
+        this.bloomFilterService = bloomFilterService;
+        this.stringRedisTemplate = stringRedisTemplate;
+        this.objectMapper = objectMapper;
+        this.accessLogService = accessLogService;
+    }
 
 
     @Override

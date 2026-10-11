@@ -6,7 +6,6 @@ import com.itqiuan.shortlink.entity.ShortLink;
 import com.itqiuan.shortlink.mapper.ShortLinkMapper;
 import com.itqiuan.shortlink.service.BloomFilterService;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataAccessException;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
@@ -27,10 +26,13 @@ public class BloomFilterServiceImpl implements BloomFilterService {
 
     private static final int PAGE_SIZE = 1000;
 
-    @Autowired
-    private StringRedisTemplate stringRedisTemplate;
-    @Autowired
-    private ShortLinkMapper shortLinkMapper;
+    private final StringRedisTemplate stringRedisTemplate;
+    private final ShortLinkMapper shortLinkMapper;
+
+    public BloomFilterServiceImpl(StringRedisTemplate stringRedisTemplate, ShortLinkMapper shortLinkMapper) {
+        this.stringRedisTemplate = stringRedisTemplate;
+        this.shortLinkMapper = shortLinkMapper;
+    }
 
 
     @Override

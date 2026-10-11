@@ -11,7 +11,6 @@ import com.itqiuan.shortlink.mapper.LinkAccessLogMapper;
 import com.itqiuan.shortlink.service.AccessLogService;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataAccessException;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
@@ -29,16 +28,19 @@ import java.util.stream.Collectors;
 @Service
 public class AccessLogServiceImpl extends ServiceImpl<LinkAccessLogMapper, LinkAccessLog> implements AccessLogService {
 
-    @Autowired
-    private StringRedisTemplate stringRedisTemplate;
-    @Autowired
-    private ObjectMapper objectMapper;
-    @Autowired
-    private TransactionTemplate transactionTemplate;
-    @Autowired
-    private ShortLinkProperties shortLinkProperties;
+    private final StringRedisTemplate stringRedisTemplate;
+    private final ObjectMapper objectMapper;
+    private final TransactionTemplate transactionTemplate;
+    private final ShortLinkProperties shortLinkProperties;
 
     private static final int MAX = 512;
+
+    public AccessLogServiceImpl(StringRedisTemplate stringRedisTemplate, ObjectMapper objectMapper, TransactionTemplate transactionTemplate, ShortLinkProperties shortLinkProperties) {
+        this.stringRedisTemplate = stringRedisTemplate;
+        this.objectMapper = objectMapper;
+        this.transactionTemplate = transactionTemplate;
+        this.shortLinkProperties = shortLinkProperties;
+    }
 
     @Override
     public void record(String shortCode) {

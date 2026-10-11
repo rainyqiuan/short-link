@@ -5,7 +5,6 @@ import com.itqiuan.shortlink.entity.ShortLink;
 import com.itqiuan.shortlink.mapper.ShortLinkMapper;
 import com.itqiuan.shortlink.service.ExpireCleanService;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataAccessException;
 import org.springframework.stereotype.Service;
 
@@ -19,8 +18,11 @@ import java.time.LocalDateTime;
 @Service
 public class ExpireCleanServiceImpl implements ExpireCleanService {
 
-    @Autowired
-    private ShortLinkMapper shortLinkMapper;
+    private final ShortLinkMapper shortLinkMapper;
+
+    public ExpireCleanServiceImpl(ShortLinkMapper shortLinkMapper) {
+        this.shortLinkMapper = shortLinkMapper;
+    }
 
     @Override
     public void cleanExpired(int batchSize, int maxRound) {
