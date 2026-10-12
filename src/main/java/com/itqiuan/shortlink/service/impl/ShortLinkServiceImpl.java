@@ -111,7 +111,7 @@ public class ShortLinkServiceImpl implements ShortLinkService {
                     throw new BusinessException(ResultCode.SHORT_CODE_ALREADY_EXIST,
                             "短码\"" + shortLinkCreateDTO.getCustomCode() + "\"已被占用");
                 }
-                log.warn("短码撞号，第 {} 次尝试，准备换号重试", attempt + 1);
+                log.warn("短码撞号，第 {} 次尝试，准备换号重试", attempt + 1, e);
                 continue;
             } catch (ConcurrencyFailureException e) {
                 // 死锁 / 锁等待超时：整条事务已被 MySQL 回滚，只能在新事务里重来
