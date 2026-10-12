@@ -7,6 +7,7 @@ import com.itqiuan.shortlink.mapper.ShortLinkMapper;
 import com.itqiuan.shortlink.service.BloomFilterService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataAccessException;
+import org.springframework.data.redis.connection.BitFieldSubCommands;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
@@ -52,17 +53,28 @@ public class BloomFilterServiceImpl implements BloomFilterService {
                 return true;
             }
             long[] indices = indices(shortCode);
+            BitFieldSubCommands commands = BitFieldSubCommands.create();
             for (int i = 0; i < HASH_COUNT; i++) {
                 long index = Math.floorMod((indices[0] + i * indices[1]), BIT_SIZE);
-                if (Boolean.FALSE.equals(stringRedisTemplate.opsForValue().getBit(RedisKeyConstant.BLOOM, index))) {
+                BitFieldSubCommands bitFieldSubCommands = commands.get(BitFieldSubCommands.BitFieldType.unsigned(1)).valueAt(index);
+                commands = bitFieldSubCommands;
+            }
+            List<Long> results = stringRedisTemplate.opsForValue()
+                    .bitField(RedisKeyConstant.BLOOM, commands);
+            if (results == null || results.size() != HASH_COUNT) {
+                log.warn("布隆过滤器检查结果异常");
+                return true;
+            }
+            for (Long bit : results) {
+                if (bit == null || bit == 0L) {
                     return false;
                 }
             }
+            return true;
         } catch (DataAccessException e) {
             log.warn("检查布隆过滤器失败", e);
             return true;
         }
-        return true;
     }
 
     @Override
@@ -96,7 +108,7 @@ public class BloomFilterServiceImpl implements BloomFilterService {
         }
     }
 
-    private void setBits(String shortCode){
+    private void setBits(String shortCode) {
         long[] indices = indices(shortCode);
         for (int i = 0; i < HASH_COUNT; i++) {
             long index = Math.floorMod((indices[0] + i * indices[1]), BIT_SIZE);
