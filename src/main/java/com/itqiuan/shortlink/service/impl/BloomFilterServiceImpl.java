@@ -6,6 +6,8 @@ import com.itqiuan.shortlink.entity.ShortLink;
 import com.itqiuan.shortlink.mapper.ShortLinkMapper;
 import com.itqiuan.shortlink.service.BloomFilterService;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
 import org.springframework.dao.DataAccessException;
 import org.springframework.data.redis.connection.BitFieldSubCommands;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -55,7 +57,7 @@ public class BloomFilterServiceImpl implements BloomFilterService {
             long[] indices = indices(shortCode);
             BitFieldSubCommands commands = BitFieldSubCommands.create();
             for (int i = 0; i < HASH_COUNT; i++) {
-                long index = Math.floorMod((indices[0] + i * indices[1]), BIT_SIZE);
+                long index = indexAt(indices, i);
                 BitFieldSubCommands bitFieldSubCommands = commands.get(BitFieldSubCommands.BitFieldType.unsigned(1)).valueAt(index);
                 commands = bitFieldSubCommands;
             }
@@ -111,10 +113,21 @@ public class BloomFilterServiceImpl implements BloomFilterService {
     private void setBits(String shortCode) {
         long[] indices = indices(shortCode);
         for (int i = 0; i < HASH_COUNT; i++) {
-            long index = Math.floorMod((indices[0] + i * indices[1]), BIT_SIZE);
+            long index = indexAt(indices, i);
             stringRedisTemplate.opsForValue().setBit(RedisKeyConstant.BLOOM, index, true);
         }
     }
+
+    @EventListener(ApplicationReadyEvent.class)
+    public void rebuildBloomFilterOnStartup() {
+        if (stringRedisTemplate.hasKey(RedisKeyConstant.BLOOM_READY)) {
+            log.info("布隆过滤器已就绪，跳过重建");
+            return;
+        }
+        log.info("布隆过滤器未就绪，开始重建");
+        rebuildBloomFilter();
+    }
+
 
     private long[] indices(String shortCode) {
         long[] indices = new long[2];
@@ -129,4 +142,11 @@ public class BloomFilterServiceImpl implements BloomFilterService {
         }
         return indices;
     }
+
+    private long indexAt(long[] indices, int i) {
+        return Math.floorMod(Math.floorMod(indices[0], BIT_SIZE)
+                + i * Math.floorMod(indices[1], BIT_SIZE), BIT_SIZE);
+    }
+
+
 }
