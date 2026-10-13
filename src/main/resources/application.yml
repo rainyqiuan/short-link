@@ -4,8 +4,8 @@ spring:
 
 
   datasource:
-    url: jdbc:mysql://localhost:3306/shortlink?allowPublicKeyRetrieval=true
-    username: shortlink
+    url: jdbc:mysql://${MYSQL_HOST:localhost}:${MYSQL_PORT:3306}/${MYSQL_DATABASE:shortlink}?allowPublicKeyRetrieval=true
+    username: ${MYSQL_USER:shortlink}
     password: ${MYSQL_PASSWORD}
 
     hikari:
@@ -17,7 +17,7 @@ spring:
 
   data:
     redis:
-      host: localhost
+      host: ${REDIS_HOST:localhost}
       port: 6379
       password: ${REDIS_PASSWORD}
       database: 0
