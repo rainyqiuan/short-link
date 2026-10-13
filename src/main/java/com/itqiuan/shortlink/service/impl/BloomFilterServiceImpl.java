@@ -120,9 +120,13 @@ public class BloomFilterServiceImpl implements BloomFilterService {
 
     @EventListener(ApplicationReadyEvent.class)
     public void rebuildBloomFilterOnStartup() {
-        if (stringRedisTemplate.hasKey(RedisKeyConstant.BLOOM_READY)) {
-            log.info("布隆过滤器已就绪，跳过重建");
-            return;
+        try {
+            if (stringRedisTemplate.hasKey(RedisKeyConstant.BLOOM_READY)) {
+                log.info("布隆过滤器已就绪，跳过重建");
+                return;
+            }
+        } catch (DataAccessException e) {
+            log.warn("Redis 不可用，跳过布隆过滤器就绪检查", e);
         }
         log.info("布隆过滤器未就绪，开始重建");
         rebuildBloomFilter();
