@@ -216,3 +216,97 @@ name: shortlink
 8. 全通过 → 去写 `application.yml`
 
 **走完第 8 步，你的环境就搭好了，可以正式进 Day 2。**
+
+> 🔁 **2026-10-13 更新**：上面这套顺序是**开发模式**（只起中间件）。W8 之后 `docker-compose.yml` 里多了第三个服务 `app`，多一种"整套部署"的用法 —— 见第八节。
+
+---
+
+## 八、🔁 2026-10-13 更新：compose 多了第三个服务 `app`
+
+到 W7 为止，`docker-compose.yml` 里只有 `mysql` + `redis`，应用永远跑在本机。W8 把应用也容器化了，但**不是把它变成常住的第三个容器**，而是挂在 `profiles` 后面：
+
+```yaml
+  app:
+    build: .                       # 用项目根目录的 Dockerfile 构建
+    profiles: [ "prod" ]           # ← 关键：不带 --profile prod 就不存在
+    ports:
+      - "8080:8080"
+    environment:
+      MYSQL_HOST: mysql            # 服务名就是主机名（同一网络内）
+      REDIS_HOST: redis
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+```
+
+### 为什么用 profiles 而不是直接加？
+
+| 方案 | 平时 `docker compose up -d` 的结果 | 问题 |
+|---|---|---|
+| 直接加 `app` | 会把应用也拉起来，**抢 8080** | 本机 IDEA 就跑不了了 |
+| `profiles: [ "prod" ]` | 只有 mysql/redis | 无 —— 想跑整套时加 `--profile prod` |
+
+**一句话**：同一个文件，**默认视图**给开发用、**prod 视图**给部署用，不用维护两份配置（也就不会有两份悄悄漂移的问题）。
+
+### 中间件多了 `healthcheck`
+
+`condition: service_healthy` 要有东西可等 —— 而 `mysql:8.0` / `redis:7.4` 这两个镜像**都没有自带健康检查**（`docker inspect ... .Config.Healthcheck` 是 `null`），所以要自己写：
+
+```yaml
+    healthcheck:
+      test: [ "CMD-SHELL", "mysqladmin ping -h127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent" ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+```
+
+⚠️ **这里有三个必踩的坑**（W8 实测踩过）：
+
+1. **必须写 `$$` 而不是 `$`** —— `${X}` 是 compose 在宿主机上替换，`$$X` 才是"容器内的环境变量"。两者机制完全不同。
+2. **必须用 `CMD-SHELL` 而不是 `CMD`** —— `CMD` 数组形式**不经过 shell**，变量永远不会展开。
+3. **`$$X` 还有第三个前提**：容器里得**真的定义了这个变量**。redis 的 healthcheck 一开始一直 `unhealthy`，就是因为 redis 的 `environment:` 里只有 `TZ`、没有 `REDIS_PASSWORD`（`mysql` 那边恰好有 `MYSQL_ROOT_PASSWORD`，所以它没事）。
+
+完整推导与取证见 `05-工程结构与起步指南.md` §三之五十九 第 2、3 节。
+
+### 部署模式的完整顺序
+
+```bash
+# 1. 先在本机打出 jar（单阶段镜像不含 mvn，compose 不会替你编译）
+mvn -DskipTests package
+
+# 2. 起整套（--build 会重建 app 镜像）
+docker compose --profile prod up -d --build
+
+# 3. 看状态：app 显示 Up，mysql/redis 显示 (healthy)
+docker compose --profile prod ps
+```
+
+`up` 的输出会把依赖顺序打出来，**卡在哪一段就说明问题在哪一层**：
+
+```
+Container shortlink-mysql-1 Waiting
+Container shortlink-redis-1 Waiting
+Container shortlink-redis-1 Healthy
+Container shortlink-mysql-1 Healthy
+Container shortlink-app-1 Starting
+Container shortlink-app-1 Started
+```
+
+卡在 `Waiting` → 问题在中间件的 healthcheck，不在应用。
+
+### 停的时候注意
+
+| 命令 | 效果 |
+|---|---|
+| `docker compose --profile prod down` | 删容器 + 网络，**数据卷保留**（表数据还在） |
+| `docker compose --profile prod down -v` | **连数据卷一起删**，真正从零重建 |
+
+### 一句提醒
+
+`mvn package` 会**跑测试**，而项目里的 `RebuildBloomFilterTest` 有个 `@AfterEach` 会删掉 Redis 里的布隆位图（`@Transactional` 只能回滚 MySQL，回滚不了 Redis）。所以打包一律用 **`-DskipTests`**；镜像构建阶段更要如此 —— 那时容器里连不上 MySQL/Redis，测试必然失败。

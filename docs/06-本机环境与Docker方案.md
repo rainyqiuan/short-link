@@ -17,6 +17,8 @@
 
 本机项目通过 `localhost:3306` / `localhost:6379` 访问容器里的中间件。
 
+> 🔁 **2026-10-13 更新（W8 已落地）**：上面这张表是**开发模式**的结论。W8 已经把"项目也进容器"做完了 —— 同一个 `docker-compose.yml` 里多了一个 `app` 服务（`profiles: ["prod"]`），**按需启动**，本机开发的习惯一点没变。两种模式的区别见第八节。
+
 ---
 
 ## 二、为什么项目不一起进容器
@@ -27,9 +29,9 @@
 | 断点调试 | IDEA 直接打断点 | 要配远程调试，很麻烦 |
 | 端口访问 | 8080 直接访问 | 要额外做端口映射 |
 | 文件挂载 | 不涉及 | Windows 目录挂进容器**非常慢** |
-| 结论 | ✅ 开发阶段用这个 | ❌ 只在 W8 部署时用 |
+| 结论 | ✅ 开发阶段用这个 | ✅ **W8 已落地**（默认不启动，只在 `--profile prod` 时用，见第八节） |
 
-**一句话**：开发期中间件容器化，项目留在本机；W8 部署时才把项目也打包成镜像。
+**一句话**：开发期中间件容器化，项目留在本机；W8 部署时才把项目也打包成镜像 —— **这句话在 W8 兑现了**，而且两种模式共用同一个 compose 文件，互不打扰。
 
 ---
 
@@ -129,3 +131,38 @@ volumes:
 | **彻底重置** | `docker compose down -v` |
 
 `down -v` 是你 W1 建表建错时的救命命令——把容器和数据卷一起删干净，重来一遍。**注意 `-v` 会删掉数据卷，数据会没。**
+
+---
+
+## 八、🔁 W8 落地：同一个文件，两种模式
+
+| 模式 | 命令 | 起什么 | 用在哪 |
+|---|---|---|---|
+| **开发**（默认） | `docker compose up -d` | 只有 mysql / redis | 本机 IDEA 跑应用，8080 归你自己 |
+| **部署**（prod） | `docker compose --profile prod up -d --build` | mysql / redis / **app** | 换一台机器 / 演示 / 交付 |
+
+关键设计：`app` 服务打了 `profiles: [ "prod" ]` → **不带 `--profile` 时它根本不存在**。所以：
+
+- 平时 `docker compose up -d`，行为跟 W1~W7 一模一样，**零感知**；
+- 想跑整套，多一个 `--profile prod`；
+- `docker compose config --services`（不带 / 带 profile 各看一次）可以验证当前"视图"里有哪些服务 —— 实测分别是 `mysql, redis` 和 `mysql, redis, app`。
+
+**部署模式的两条硬前提**：
+
+1. **jar 必须先打好** —— 镜像是单阶段 Dockerfile（里面**没有** `mvn`），所以顺序是 `mvn -DskipTests package` → 再 compose。`-DskipTests` 不能省：`RebuildBloomFilterTest` 的 `@AfterEach` 会删掉 Redis 里的布隆位图（详见 `05` §三之五十九 第 5 节）。
+2. **连接配置走环境变量** —— `application.yml` 里的 host 已参数化为 `${MYSQL_HOST:localhost}` / `${REDIS_HOST:localhost}`；容器里由 compose 注入服务名 `mysql` / `redis`（同一网络里服务名即主机名），本机开发不设变量就走回默认值，**两边的代码完全一样**。
+
+**一键起全套**：
+
+```bash
+mvn -DskipTests package
+docker compose --profile prod up -d --build
+
+# 验证
+curl localhost:8080/actuator/health     # {"status":"UP"}
+curl localhost:8080/<短码>               # 302 → 目标地址，响应头带 X-Trace-Id
+```
+
+**注意 `down` 和 `down -v` 的区别**：`docker compose --profile prod down` 只删容器和网络，**数据卷保留**（实测重启后表里 3001 行还在）；要真正从零重建才加 `-v`。
+
+完整的踩坑、判据与实测数据见 `05-工程结构与起步指南.md` §三之五十九。
