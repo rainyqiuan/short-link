@@ -1,5 +1,6 @@
 .env
 target/
+!target/*.jar
 .git/
 .gitignore
 docs/
