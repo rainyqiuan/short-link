@@ -1,6 +1,7 @@
 package com.itqiuan.shortlink.common.result;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
+import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
@@ -9,9 +10,13 @@ import lombok.NoArgsConstructor;
 @JsonInclude(JsonInclude.Include.NON_NULL)   // data/traceId 为 null 时不输出该字段
 public class Result<T> {
 
+    @Schema(description = "状态码")
     private int code;
+    @Schema(description = "提示信息")
     private String message;
+    @Schema(description = "数据")
     private T data;
+    @Schema(description = "追踪信息")
     private String traceId;
 
     private Result(int code, String message, T data, String traceId) {

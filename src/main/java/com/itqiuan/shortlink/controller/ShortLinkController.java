@@ -7,6 +7,8 @@ import com.itqiuan.shortlink.service.StatsService;
 import com.itqiuan.shortlink.vo.LinkStatsVO;
 import com.itqiuan.shortlink.vo.ShortLinkVO;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import org.springframework.format.annotation.DateTimeFormat;
@@ -35,7 +37,9 @@ public class ShortLinkController {
 
     @GetMapping("/{code}/stats")
     @Operation(summary = "获取短链统计信息")
-    public Result<LinkStatsVO> getStats(@PathVariable String code, @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate, @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate) {
+    public Result<LinkStatsVO> getStats(@Parameter(description = "短链码") @PathVariable String code,
+                                        @Parameter(description = "开始日期") @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
+                                        @Parameter(description = "结束日期") @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate) {
         return Result.success(statsService.queryStats(code, startDate, endDate));
     }
 

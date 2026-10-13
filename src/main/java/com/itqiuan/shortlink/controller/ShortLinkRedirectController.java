@@ -6,6 +6,9 @@ import com.itqiuan.shortlink.common.enums.LinkUsabilityEnum;
 import com.itqiuan.shortlink.common.result.Result;
 import com.itqiuan.shortlink.common.result.ResultCode;
 import com.itqiuan.shortlink.service.RedirectService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -17,6 +20,7 @@ import java.net.URI;
 
 @Slf4j
 @RestController
+@Tag(name = "短链重定向")
 public class ShortLinkRedirectController {
 
     private final RedirectService redirectService;
@@ -27,7 +31,8 @@ public class ShortLinkRedirectController {
 
     @RateLimit(route = "redirect")
     @GetMapping("/{code:[0-9a-zA-Z]{4,16}}")
-    public ResponseEntity<Result<Object>> redirect(@PathVariable("code") String shortCode) {
+    @Operation(summary = "短链跳转", description = "浏览器跳转入口，不是开发者接口，勿在文档中点")
+    public ResponseEntity<Result<Object>> redirect(@Parameter(description = "短链码") @PathVariable("code") String shortCode) {
         ShortLinkCheckResult redirect = redirectService.redirect(shortCode);
         LinkUsabilityEnum linkUsabilityEnum = redirect.getLinkUsabilityEnum();
         return switch (linkUsabilityEnum) {
