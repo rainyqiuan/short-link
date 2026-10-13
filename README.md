@@ -23,11 +23,13 @@
 中间件跑容器，应用跑本机 —— 秒级热重载、IDEA 直接打断点。
 
 ```bash
-# 1. 起中间件（只起 MySQL + Redis）
+# 1. 起中间件（只起 MySQL + Redis；首次启动会自动执行 docs/02 建库建表）
 docker compose up -d
 
-# 2. 准备环境变量（.env 不会被 Spring Boot 自动加载，需手动导出）
-#    MYSQL_PASSWORD / REDIS_PASSWORD，见 .env.example
+# 2. 准备环境变量：复制模板后填写密码
+#    application.yml 里有 spring.config.import: optional:file:./.env[.properties]
+#    → Spring Boot 会自动加载 .env，无需手动 export
+cp .env.example .env
 
 # 3. 本机启动应用
 mvn spring-boot:run
@@ -53,6 +55,9 @@ curl localhost:8080/<短码>               # 302 → 目标地址
 ```
 
 两种模式**共用同一个 `docker-compose.yml`** —— `app` 服务带 `profiles: [ "prod" ]`，不带 `--profile` 时它不参与，开发习惯零改变。
+
+> **数据库初始化**：MySQL 容器已把 [`docs/02`](docs/02-数据库设计.sql) 挂到 `docker-entrypoint-initdb.d/`，**首次启动（数据卷为空）时自动建库建表**，无需手动导入。
+> 数据卷已有数据时该脚本不会重跑 —— 想彻底重建就 `docker compose down -v`，**注意 `-v` 会删掉全部数据**。
 
 > 详细步骤、踩过的坑与实测数据见 [`docs/06`](docs/06-本机环境与Docker方案.md) §八、[`docs/07`](docs/07-Docker基础与操作流程.md) §八。
 
