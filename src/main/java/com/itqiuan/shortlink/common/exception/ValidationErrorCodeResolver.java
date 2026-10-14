@@ -3,6 +3,13 @@ package com.itqiuan.shortlink.common.exception;
 import com.itqiuan.shortlink.common.exception.constant.ValidationFieldNames;
 import com.itqiuan.shortlink.common.result.ResultCode;
 
+/**
+ * 把"校验失败的字段名"翻译成"业务错误码"。
+ * <p>
+ * 为什么要有这一层：Bean Validation 抛异常时只告诉你"哪个字段错了"，
+ * 而接口契约要求不同字段返回不同错误码（expireTime → 40004、customCode → 40003）。
+ * 把"字段 → 错误码"的映射集中在这里，就不用散落到各个异常处理分支里。
+ */
 public class ValidationErrorCodeResolver {
     /**
      * 根据字段路径解析业务错误码
@@ -31,6 +38,7 @@ public class ValidationErrorCodeResolver {
         };
     }
 
+    /** 纯工具类，禁止实例化。 */
     private ValidationErrorCodeResolver() {
     }
 }

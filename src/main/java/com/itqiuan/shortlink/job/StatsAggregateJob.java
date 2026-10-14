@@ -7,6 +7,11 @@ import org.springframework.dao.DataAccessException;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+/**
+ * 统计聚合任务：定时重算最近若干天的 PV/UV 并写入汇总表。
+ * <p>
+ * 与搬运任务一样，只对数据访问异常兜底 —— 聚合失败下一轮会重算（回看多天就是为了兜底）。
+ */
 @Slf4j
 @Component
 public class StatsAggregateJob {
@@ -20,6 +25,9 @@ public class StatsAggregateJob {
         this.shortLinkProperties = shortLinkProperties;
     }
 
+    /**
+     * 按 stats-cron 触发；回看天数来自配置。
+     */
     @Scheduled(cron="${short-link.stats-cron}", zone = "Asia/Shanghai")
     public void aggregateStats() {
         try {

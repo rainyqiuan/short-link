@@ -19,14 +19,27 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.List;
 
+/**
+ * 布隆过滤器实现：拦截"一定不存在"的短码，挡住缓存穿透。
+ * <p>
+ * 参数：位数组 m = 9_580_000 位、hash 个数 k = 7 —— 按预期数据量与 1% 误判率算出来的。
+ * 两个 hash 由一次 MD5 摘要的前 8 字节 + 后 8 字节派生，再用线性组合凑出 k 个下标，
+ * 省掉引额外 hash 库。
+ * <p>
+ * 三类操作的降级：add 失败只记日志；mightContain 失败一律返回 true 放行；
+ * rebuild 失败降级 —— 绝不因为布隆挂了就让正常请求查不到。
+ */
 @Service
 @Slf4j
 public class BloomFilterServiceImpl implements BloomFilterService {
-    // m
+
+    /** 位数组长度 m（单位：位）。 */
     private static final long BIT_SIZE = 9_580_000L;
-    // k
+
+    /** hash 个数 k（一个元素映射 k 个位）。 */
     private static final int HASH_COUNT = 7;
 
+    /** 重建时每页扫描的行数。 */
     private static final int PAGE_SIZE = 1000;
 
     private final StringRedisTemplate stringRedisTemplate;
@@ -38,6 +51,12 @@ public class BloomFilterServiceImpl implements BloomFilterService {
     }
 
 
+    /**
+     * 加一个短码。
+     * <p>
+     * setBits 会抛 DataAccessException，这里包一层降级：漏加最多让这个短码
+     * 首次访问多走一次库，不影响正确性。
+     */
     @Override
     public void addToBloomFilter(String shortCode) {
         try {
@@ -47,6 +66,14 @@ public class BloomFilterServiceImpl implements BloomFilterService {
         }
     }
 
+    /**
+     * 判断短码"可能存在"。
+     * <p>
+     * 顺序很关键：<b>先看 READY 标志</b> —— 位图还没建好时直接放行，
+     * 否则会把所有短码都判成"不存在"（位图是空的，任何下标查出来都是 0）。
+     * <p>
+     * 一次 BITFIELD 批量取 k 个位（而不是 k 次 GETBIT），把往返从 k 次压到 1 次。
+     */
     @Override
     public boolean mightContain(String shortCode) {
         try {
@@ -79,6 +106,11 @@ public class BloomFilterServiceImpl implements BloomFilterService {
         }
     }
 
+    /**
+     * 全量重建：先删位图和 READY 标志，再按主键游标<b>分页</b>扫全表逐条加位，最后才置回 READY。
+     * <p>
+     * 用"主键游标"而不是 OFFSET 分页：OFFSET 深分页会越翻越慢，主键游标翻页代价恒定。
+     */
     @Override
     public void rebuildBloomFilter() {
         try {
@@ -110,6 +142,7 @@ public class BloomFilterServiceImpl implements BloomFilterService {
         }
     }
 
+    /** @param shortCode 短码；把它的 k 个下标位全置 1 */
     private void setBits(String shortCode) {
         long[] indices = indices(shortCode);
         for (int i = 0; i < HASH_COUNT; i++) {
@@ -118,6 +151,10 @@ public class BloomFilterServiceImpl implements BloomFilterService {
         }
     }
 
+    /**
+     * 应用就绪后自动重建：只有位图缺失（比如 Redis 被清过）时才补齐，
+     * 已就绪则跳过，避免每次重启都白扫一遍全表。
+     */
     @EventListener(ApplicationReadyEvent.class)
     public void rebuildBloomFilterOnStartup() {
         try {
@@ -133,6 +170,9 @@ public class BloomFilterServiceImpl implements BloomFilterService {
     }
 
 
+    /**
+     * 由短码派生两个 64 位 hash：取 MD5 摘要（16 字节）的前 8 / 后 8 字节。
+     */
     private long[] indices(String shortCode) {
         long[] indices = new long[2];
         try {
@@ -147,6 +187,12 @@ public class BloomFilterServiceImpl implements BloomFilterService {
         return indices;
     }
 
+    /**
+     * 第 i 个下标 = (h1 + i*h2) mod m —— 双 hash 线性组合出 k 个位置。
+     * <p>
+     * 用 Math.floorMod 而不是 %：h1 与 i*h2 相加后可能超出 int/long 范围、也可能为负，
+     * 直接用 % 在参数为负时会得到负下标，floorMod 保证结果恒为非负。
+     */
     private long indexAt(long[] indices, int i) {
         return Math.floorMod(Math.floorMod(indices[0], BIT_SIZE)
                 + i * Math.floorMod(indices[1], BIT_SIZE), BIT_SIZE);

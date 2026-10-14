@@ -40,7 +40,10 @@ public enum ResultCode {
     SYSTEM_ERROR(50000, "系统异常"),
     DEPENDENCY_ERROR(50001, "依赖服务不可用");
 
+    /** 业务错误码，0 表示成功。 */
     private final int code;
+
+    /** 面向调用方的可读描述；异常处理器可用更具体的消息覆盖它。 */
     private final String message;
 
 }

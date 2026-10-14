@@ -23,17 +23,33 @@ import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.util.StringUtils;
 import org.springframework.validation.annotation.Validated;
 
+/**
+ * 短链创建实现：幂等 + 冲突归因 + 有限重试。
+ * <p>
+ * 整体思路：
+ * ① 先算 originUrl 的 md5，事务外查一次（幂等快路径）—— 命中就直接复用，不进去写；
+ * ② 没命中才进入重试循环，每轮一个独立事务；失败按异常类型分流：
+ *    - 撞 origin_url_md5 → 说明并发提交了同一个 URL，回查赢家并复用；
+ *    - 撞 short_code 且是自定义短码 → 报 40006；
+ *    - 撞 short_code 且是自动发号 → 换一个号重试；
+ *    - 死锁 / 锁等待超时 → 换新事务重试；
+ * ③ 重试用尽仍失败 → 抛 50000。
+ * <p>
+ * 之所以把"组装待插实体"放在事务外：发号走 Redis，不该拖长数据库事务（事务越短越好）。
+ */
 @Slf4j
 @Service
 @Validated
 public class ShortLinkServiceImpl implements ShortLinkService {
 
-    // 62^5 = 916132832
+    /** 短码起始偏移 62^5 = 916132832：让自动短码从 6 位开始。
+     *  ⚠️ 它<b>不是加密/混淆</b>，只抬高起点，短码依旧连号可预测（详见 Base62Util 注释）。 */
     private static final long SEQ_OFFSET = 916132832L;
-    // 总尝试次数
+
+    /** 单次请求最多尝试几次（含首次）。 */
     private static final int MAX_ATTEMPTS = 3;
 
-    // 去重用的唯一索引名：归因靠从异常 message 里读它
+    /** 去重用的唯一索引名：冲突归因靠从异常 message 里读它。 */
     private static final String UK_ORIGIN_URL_MD5 = "uk_origin_url_md5";
 
     private final ShortLinkConverter shortLinkConverter;
@@ -166,10 +182,17 @@ public class ShortLinkServiceImpl implements ShortLinkService {
         return message != null && message.contains(UK_ORIGIN_URL_MD5);
     }
 
+    /** 按 originUrl 的 md5 查已有记录（幂等判据）。 */
     private ShortLink selectByMd5(String md5) {
         return shortLinkMapper.selectOne(new LambdaQueryWrapper<ShortLink>().eq(ShortLink::getOriginUrlMd5, md5));
     }
 
+    /**
+     * 落库并回查。
+     * <p>
+     * 回查是必须的：create_time 由数据库默认值填充，insert 后实体里那个字段还是 null，
+     * 不重查一次，返回给前端的创建时间就是空。
+     */
     private ShortLink persist(ShortLink shortLink) {
         shortLinkMapper.insert(shortLink);
         return shortLinkMapper.selectById(shortLink.getId());

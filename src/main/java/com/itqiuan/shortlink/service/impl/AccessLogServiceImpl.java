@@ -24,6 +24,15 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.stream.Collectors;
 
+/**
+ * 访问日志实现：跳转链路上只入队、不在链路上写库；由定时任务批量搬运落库。
+ * <p>
+ * 为什么要缓冲：跳转是最热、最不能被拖慢的一环 —— 每次跳转写一条日志，写压力会直接压在同一张表上。
+ * 改成"先 RPUSH 进 Redis List、定时批量落库"后，跳转链路<b>零写库</b>，写压力与读路径解耦。
+ * <p>
+ * 队列还有上限（accessQueueMaxSize）：超了就从头部裁掉最旧的 —— 宁可丢最早的历史日志，
+ * 也不让队列无限涨把 Redis 内存吃穿。
+ */
 @Slf4j
 @Service
 public class AccessLogServiceImpl extends ServiceImpl<LinkAccessLogMapper, LinkAccessLog> implements AccessLogService {
@@ -33,6 +42,7 @@ public class AccessLogServiceImpl extends ServiceImpl<LinkAccessLogMapper, LinkA
     private final TransactionTemplate transactionTemplate;
     private final ShortLinkProperties shortLinkProperties;
 
+    /** UA / Referer 的截断长度：这两个字段可能很长，截断避免撑爆库里的列。 */
     private static final int MAX = 512;
 
     public AccessLogServiceImpl(StringRedisTemplate stringRedisTemplate, ObjectMapper objectMapper, TransactionTemplate transactionTemplate, ShortLinkProperties shortLinkProperties) {
@@ -42,6 +52,13 @@ public class AccessLogServiceImpl extends ServiceImpl<LinkAccessLogMapper, LinkA
         this.shortLinkProperties = shortLinkProperties;
     }
 
+    /**
+     * 记录一次跳转：把日志序列化后 RPUSH 进队列，紧接着 LTRIM 保留最后 N 条。
+     * <p>
+     * ① 取请求信息走 {@code RequestContextHolder}：可能有异步场景拿不到请求上下文，
+     *   拿到就跳过（不能让统计把跳转搞挂）；
+     * ② 入队失败（序列化/连接异常）只记日志 —— 丢一条日志只是统计少一次，不影响跳转本身。
+     */
     @Override
     public void record(String shortCode) {
 
@@ -72,6 +89,16 @@ public class AccessLogServiceImpl extends ServiceImpl<LinkAccessLogMapper, LinkA
 
     }
 
+    /**
+     * 批量将访问日志写入数据库。
+     * <p>
+     * 循环 maxRound 轮，每轮：从队列取 flushBatchSize 条 → 反序列化 → 累计 UV（HLL）
+     * → 落库 → 裁队列。
+     * <p>
+     * ⚠️ 顺序是这套机制的关键：<b>先落库成功、再裁队列</b>。若先裁后写，中途失败就真丢数据；
+     * 反过来最坏只是"重复搬运一次"（下一轮还会看到同一批），重复远好过丢失。
+     * （UV 的 HLL 写入在落库前，但 HLL 自带去重，重复 PFADD 不会重复计数。）
+     */
     @Override
     public void flush() {
         int maxFetch = shortLinkProperties.getFlushBatchSize();
@@ -164,10 +191,12 @@ public class AccessLogServiceImpl extends ServiceImpl<LinkAccessLogMapper, LinkA
         }
     }
 
+    /** 截断到 max 长度；null 视为空串。 */
     private static String truncate(String s, int max) {
         return s == null ? "" : (s.length() <= max ? s : s.substring(0, max));
     }
 
+    /** BO → entity（落库前的字段搬运）。 */
     private static LinkAccessLog toEntity(AccessLogBO accessLogBO) {
         LinkAccessLog linkAccessLog = new LinkAccessLog();
         linkAccessLog.setShortCode(accessLogBO.getShortCode());

@@ -14,6 +14,16 @@ import java.time.LocalDateTime;
 /**
  * @author qiuan
  */
+/**
+ * 过期短链清理实现：按"过期时间 < 当前时刻"分批删除。
+ * <p>
+ * 设计要点：
+ * ① 分批（batchSize）+ 限轮（maxRound）—— 一次删太多会长时间锁行、拖垮数据库；
+ * ② 用 Status 枚举记录退出原因（删完 / 达上限 / 异常），任务结束后统一按原因打日志，
+ *    而不是在各分支里散着打 —— 出问题时一眼能看出"是删完了还是被上限截断了"。
+ * <p>
+ * 注意这里用的是<b>物理删除</b>（真 delete），不是逻辑删除：过期数据已无价值，留着只占空间。
+ */
 @Slf4j
 @Service
 public class ExpireCleanServiceImpl implements ExpireCleanService {
@@ -24,6 +34,9 @@ public class ExpireCleanServiceImpl implements ExpireCleanService {
         this.shortLinkMapper = shortLinkMapper;
     }
 
+    /**
+     * 分批清理：每批删 batchSize 行；某批不足 batchSize 说明已删完，提前退出。
+     */
     @Override
     public void cleanExpired(int batchSize, int maxRound) {
         if (batchSize <= 0 || maxRound <= 0) {

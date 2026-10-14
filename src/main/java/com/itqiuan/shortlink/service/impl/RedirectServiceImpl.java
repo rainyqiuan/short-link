@@ -23,6 +23,17 @@ import java.time.LocalDateTime;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 
+/**
+ * 跳转读路径实现：布隆 → 缓存 → 库 三级，Cache-Aside 模式。
+ * <p>
+ * 顺序与用意：
+ * ① <b>布隆在最前</b>：把"一定不存在"的短码在第一次 Redis 访问前就挡掉（挡缓存穿透）；
+ * ② 再查缓存；miss 才回源 DB，并把结果按 TTL 写回缓存；
+ * ③ 只有判定为 REUSABLE 才记访问日志 —— 无效短码不该计入统计。
+ * <p>
+ * 降级：读缓存失败（Redis 异常）时置 {@code cacheReadOk=false}，仍继续查库，
+ * 但<b>跳过写回</b>（既然读都有问题，写大概率也白写，而且不必再抛一次）。
+ */
 @Service
 @Slf4j
 public class RedirectServiceImpl implements RedirectService {
@@ -33,9 +44,10 @@ public class RedirectServiceImpl implements RedirectService {
     private final StringRedisTemplate stringRedisTemplate;
     private final ObjectMapper objectMapper;
     private final AccessLogService accessLogService;
-    // 基准 TTL：24 小时
+    /** 缓存基准 TTL：24 小时。 */
     private static final long BASE_TTL_SECONDS = 86400L;
-    // 抖动幅度：最多提前 1 小时
+
+    /** TTL 抖动幅度：最多提前 1 小时 —— 打散过期时间，避免同一时刻批量失效造成雪崩。 */
     private static final long JITTER_SECONDS = 3600L;
 
     public RedirectServiceImpl(ShortLinkMapper shortLinkMapper, ShortLinkClassifier shortLinkClassifier, BloomFilterService bloomFilterService, StringRedisTemplate stringRedisTemplate, ObjectMapper objectMapper, AccessLogService accessLogService) {
@@ -48,6 +60,9 @@ public class RedirectServiceImpl implements RedirectService {
     }
 
 
+    /**
+     * 解析短码并返回体检结果（布隆 → 缓存 → 库）。
+     */
     @Override
     public ShortLinkCheckResult redirect(String shortCode) {
         if (!bloomFilterService.mightContain(shortCode)) {
@@ -97,6 +112,7 @@ public class RedirectServiceImpl implements RedirectService {
         return checkResult;
     }
 
+    /** 把缓存快照按可用性分类，翻译成对外的体检结果。 */
     private ShortLinkCheckResult toCheckResult(ShortLinkCacheBO shortLinkCacheBO) {
         return switch (shortLinkClassifier.classify(shortLinkCacheBO.getStatus(), shortLinkCacheBO.getExpireTime())) {
             case REUSABLE -> ShortLinkCheckResult.success(shortLinkCacheBO.getOriginUrl());
@@ -109,6 +125,10 @@ public class RedirectServiceImpl implements RedirectService {
 
     /**
      * 计算缓存 TTL（秒）。返回 null 表示"这次不写缓存"。
+     * <p>
+     * 三个要点：① 有过期时间时用 {@code min(基准, 剩余寿命)} 封顶，缓存绝不比短链活得久；
+     * ② 抖动是<b>减向</b>的，防止一批缓存同时到期（雪崩）；③ 抖动可能把值拉到 <= 0，
+     * 所以兜一个下限 1 秒（TTL 为 0 会被 Redis 直接拒写）。
      */
     private Long calcTtlSeconds(LocalDateTime expireTime) {
         if (expireTime == null) {

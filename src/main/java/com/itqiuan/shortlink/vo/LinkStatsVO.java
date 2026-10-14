@@ -7,6 +7,12 @@ import lombok.NoArgsConstructor;
 
 import java.util.List;
 
+/**
+ * 一条短链在指定日期区间内的统计汇总。
+ * <p>
+ * 注意 {@code totalUv} 是"人日合计"（各天 UV 相加），<b>不等于</b>区间内去重后的人数 ——
+ * 同一个人在不同天会被分别计入。
+ */
 @Data
 @AllArgsConstructor
 @NoArgsConstructor

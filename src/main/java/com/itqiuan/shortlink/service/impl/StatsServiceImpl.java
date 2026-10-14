@@ -18,6 +18,13 @@ import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 
+/**
+ * 统计实现：定时聚合（PV 来自明细表、UV 来自 HyperLogLog）与查询。
+ * <p>
+ * 分工：PV 精确、来自访问明细表；UV 是估算、来自 Redis 的 HyperLogLog ——
+ * 用 HLL 而不是 Set 存访客，是为了把"去重计数"的内存从 O(人数) 降到常数级，
+ * 代价是结果有约 0.81% 的误差（短链统计场景可接受）。
+ */
 @Service
 @Slf4j
 public class StatsServiceImpl implements StatsService {
@@ -33,6 +40,11 @@ public class StatsServiceImpl implements StatsService {
         this.stringRedisTemplate = stringRedisTemplate;
     }
 
+    /**
+     * 聚合最近 lookbackDays 天：先按区间查出每条短码每天的 PV，再逐个补上 UV，最后批量 upsert。
+     * <p>
+     * UV 取不到（Redis 异常）时兜底为 0，而不让整个聚合失败 —— 统计是旁路，不该拖垮主流程。
+     */
     @Override
     public void aggregate(int lookbackDays) {
         long startTime = System.currentTimeMillis();
@@ -64,6 +76,11 @@ public class StatsServiceImpl implements StatsService {
         log.info("统计完成,数量：{}，耗时：{}",linkStatsDailies.size(),System.currentTimeMillis() - startTime);
     }
 
+    /**
+     * 查询统计：先校验入参（起止顺序、跨度上限 90 天），再查明细并汇总。
+     * <p>
+     * totalUv 是把每天的 UV 直接相加（人日合计），不是区间去重人数 —— 见 LinkStatsVO 注释。
+     */
     @Override
     public LinkStatsVO queryStats(String code, LocalDate start, LocalDate end) {
         if(start.isAfter(end)){

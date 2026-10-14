@@ -14,6 +14,19 @@ import org.springframework.stereotype.Service;
 
 import java.util.List;
 
+/**
+ * 令牌桶限流实现：判定 + 扣减放在一段 Lua 里原子执行。
+ * <p>
+ * 关键设计：
+ * <ul>
+ *   <li>用 {@code DefaultRedisScript} 加载 lua/token_bucket.lua，一次 EVAL 完成
+ *       "补令牌 + 扣令牌 + 返回剩余"；</li>
+ *   <li><b>fail-open</b>：Redis 出问题时一律放行（只记日志）—— 限流是保护手段，
+ *       不能因为"保护器坏了"就把正常请求也拒了（降级只能变慢，不能变错）；</li>
+ *   <li>{@code @PostConstruct} 自检：启动时试跑一次脚本，Lua 语法/类型错了就直接阻止容器启动
+ *       （脚本错误属于确定性故障，越早暴露越好）。</li>
+ * </ul>
+ */
 @Service
 @Slf4j
 public class RateLimitServiceImpl implements RateLimitService {
@@ -28,6 +41,11 @@ public class RateLimitServiceImpl implements RateLimitService {
         this.script.setResultType(Long.class);
     }
 
+    /**
+     * 尝试取一个令牌。
+     * <p>
+     * 注意脚本参数都以<b>字符串</b>传入（Redis 的 ARGV 只能是字符串），Lua 里再 tonumber 转回数字。
+     */
     @Override
     public RateLimitResult tryAcquire(String key, int capacity, int refillRate) {
         String redisKey = RedisKeyConstant.LIMIT + key;
@@ -47,6 +65,13 @@ public class RateLimitServiceImpl implements RateLimitService {
         return rateLimitResult;
     }
 
+    /**
+     * 启动自检：拿一个临时 key 试跑两次脚本。
+     * <p>
+     * 跑两次是为了覆盖"首次创建桶"和"桶已存在"两条分支 —— 只跑一次证明不了后者；
+     * 脚本语法/类型错误会抛 RedisSystemException，这里直接把它升级成启动失败。
+     * Redis 本身不可用（DataAccessException）则只 warn 跳过 —— 那是环境问题，不是脚本问题。
+     */
     @PostConstruct
     public void initScript() {
         try {

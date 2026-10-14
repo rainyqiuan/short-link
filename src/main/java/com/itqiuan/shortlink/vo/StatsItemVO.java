@@ -7,6 +7,9 @@ import lombok.NoArgsConstructor;
 
 import java.time.LocalDate;
 
+/**
+ * 统计明细中的"某一天"：该日的访问量（PV）与独立访客数（UV）。
+ */
 @Data
 @AllArgsConstructor
 @NoArgsConstructor

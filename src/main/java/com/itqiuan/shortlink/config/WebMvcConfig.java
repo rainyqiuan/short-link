@@ -5,6 +5,9 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
+/**
+ * Web MVC 配置：把限流拦截器挂到全局路径上。
+ */
 @Configuration
 public class WebMvcConfig implements WebMvcConfigurer {
 

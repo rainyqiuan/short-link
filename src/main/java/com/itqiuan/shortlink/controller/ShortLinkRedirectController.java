@@ -18,6 +18,13 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.net.URI;
 
+/**
+ * 短链跳转入口（浏览器访问），不是给开发者调的 JSON 接口。
+ * <p>
+ * 这是全项目<b>唯一</b>不遵守"业务失败也返回 HTTP 200"的接口 —— 因为它面对浏览器：
+ * 可用时必须用真实的 302 让浏览器跳走；短码无效/禁用/过期时也必须用真实的 404/410，
+ * 否则浏览器不会正确展示错误页。其余接口一律 200 + body 里的 code。
+ */
 @Slf4j
 @RestController
 @Tag(name = "短链重定向")
@@ -29,6 +36,12 @@ public class ShortLinkRedirectController {
         this.redirectService = redirectService;
     }
 
+    /**
+     * 短链跳转。
+     * <p>
+     * 路径自带正则约束（4~16 位字母数字），因此 {@code /index.html} 这类静态资源不会被它抢走。
+     * 限流 route 用固定的 "redirect"，保证所有短码共享同一个桶维度。
+     */
     @RateLimit(route = "redirect")
     @GetMapping("/{code:[0-9a-zA-Z]{4,16}}")
     @Operation(summary = "短链跳转", description = "浏览器跳转入口，不是开发者接口，勿在文档中点")

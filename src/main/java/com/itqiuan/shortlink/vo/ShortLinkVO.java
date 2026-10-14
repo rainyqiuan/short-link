@@ -5,6 +5,11 @@ import lombok.Data;
 import lombok.AllArgsConstructor;
 import lombok.NoArgsConstructor;
 
+/**
+ * 创建短链后返回给调用方的信息。
+ * <p>
+ * 注意时间字段是<b>字符串</b>（已格式化），不是时间类型 —— 这是对外的呈现约定。
+ */
 @Data
 @AllArgsConstructor
 @NoArgsConstructor

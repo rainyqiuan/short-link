@@ -17,6 +17,17 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
+/**
+ * 全局异常处理器：把抛到 Controller 之外的所有异常，统一翻译成 {@link Result} 响应体。
+ * <p>
+ * 两条贯穿全项目的约定在这里体现得最集中：
+ * <ul>
+ *   <li><b>业务失败一律 HTTP 200 + body 里的 code</b> —— 由返回 {@code Result} 的方法负责；</li>
+ *   <li><b>框架层错误保留真实 HTTP 状态码</b>（404/405/415…）—— 由返回 {@code ResponseEntity} 的兜底方法负责：
+ *       这些属于"请求本身就不对"，用 200 盖住反而误导调用方。</li>
+ * </ul>
+ * 日志等级按"是否可预期"区分：可预期用 warn，系统故障用 error。
+ */
 @Slf4j
 @RestControllerAdvice
 public class GlobalExceptionHandler {
