@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>短链平台 · 演示台</title>
+<!-- 内联 SVG 图标：省掉 /favicon.ico 的 404（控制台会当错误显示） -->
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%231f3a5f'/%3E%3Cpath d='M13.5 18.5l5-5M12.8 21.2l-1.3 1.3a3.4 3.4 0 01-4.8-4.8l3-3a3.4 3.4 0 014.8 0M19.2 10.8l1.3-1.3a3.4 3.4 0 014.8 4.8l-3 3a3.4 3.4 0 01-4.8 0' fill='none' stroke='%23fff' stroke-width='2.2' stroke-linecap='round'/%3E%3C/svg%3E">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+    background: #f4f6f9; color: #24292f; line-height: 1.6;
+    padding: 28px 20px 60px;
+  }
+  .wrap { max-width: 860px; margin: 0 auto; }
+  header { margin-bottom: 22px; }
+  header h1 { font-size: 22px; color: #14293f; letter-spacing: .5px; }
+  header p { font-size: 13px; color: #6a737d; margin-top: 4px; }
+  header code {
+    background: #e8edf3; padding: 1px 6px; border-radius: 4px;
+    font-family: Consolas, Monaco, monospace; font-size: 12px; color: #1f3a5f;
+  }
+
+  .card {
+    background: #fff; border: 1px solid #e1e4e8; border-radius: 10px;
+    padding: 18px 20px; margin-bottom: 16px;
+    box-shadow: 0 1px 3px rgba(20,41,63,.05);
+  }
+  .card h2 {
+    font-size: 15px; color: #1f3a5f; margin-bottom: 14px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .card h2 .n {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 22px; height: 22px; border-radius: 50%;
+    background: #1f3a5f; color: #fff; font-size: 12px; flex: none;
+  }
+
+  label { display: block; font-size: 13px; color: #444d56; margin: 10px 0 5px; font-weight: 600; }
+  label .opt { font-weight: 400; color: #8b949e; }
+  input {
+    width: 100%; padding: 9px 11px; font-size: 13.5px;
+    border: 1px solid #d0d7de; border-radius: 6px; background: #fff;
+    font-family: inherit; color: #24292f;
+  }
+  input:focus { outline: none; border-color: #1f3a5f; box-shadow: 0 0 0 3px rgba(31,58,95,.1); }
+  .row { display: flex; gap: 12px; flex-wrap: wrap; }
+  .row > div { flex: 1; min-width: 180px; }
+
+  button {
+    margin-top: 14px; padding: 9px 20px; font-size: 13.5px; font-weight: 600;
+    color: #fff; background: #1f3a5f; border: none; border-radius: 6px;
+    cursor: pointer; font-family: inherit;
+  }
+  button:hover { background: #2c5282; }
+  button:disabled { background: #9aa8b8; cursor: not-allowed; }
+  button.ghost { background: #fff; color: #1f3a5f; border: 1px solid #c3cdd9; }
+  button.ghost:hover { background: #eef3f9; }
+
+  .out { margin-top: 14px; }
+  .out:empty { display: none; }
+
+  .msg { padding: 10px 13px; border-radius: 6px; font-size: 13px; }
+  .msg.ok  { background: #eafff0; border: 1px solid #b7e5c6; color: #1a7f37; }
+  .msg.err { background: #fff0ef; border: 1px solid #ffc9c4; color: #b03a2e; }
+  .msg .trace { display: block; margin-top: 4px; font-size: 11.5px; color: #8b949e; font-family: Consolas, monospace; }
+
+  .kv { margin-top: 10px; font-size: 13px; }
+  .kv div { display: flex; padding: 5px 0; border-bottom: 1px dashed #eaecef; }
+  .kv div:last-child { border: none; }
+  .kv b { flex: 0 0 88px; color: #6a737d; font-weight: 600; }
+  .kv span { flex: 1; word-break: break-all; }
+  .code {
+    font-family: Consolas, Monaco, monospace; font-size: 15px; font-weight: 700;
+    color: #b03a2e; letter-spacing: 1px;
+  }
+  a.short { color: #1f3a5f; }
+
+  table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 13px; }
+  th, td { padding: 7px 10px; text-align: left; border-bottom: 1px solid #eaecef; }
+  th { background: #f6f8fa; color: #444d56; font-size: 12.5px; font-weight: 600; }
+  td.num { text-align: right; font-family: Consolas, monospace; }
+
+  .stats-top { display: flex; gap: 22px; margin-top: 12px; }
+  .stats-top .box { flex: 1; background: #f6f8fa; border-radius: 8px; padding: 12px 14px; }
+  .stats-top .box .v { font-size: 24px; font-weight: 700; color: #1f3a5f; font-family: Consolas, monospace; }
+  .stats-top .box .k { font-size: 12px; color: #6a737d; margin-top: 2px; }
+
+  .hint { font-size: 12.5px; color: #8b949e; margin-top: 10px; }
+  .hint code { background: #eef2f6; padding: 1px 5px; border-radius: 3px; font-family: Consolas, monospace; }
+  .empty-tip { font-size: 12.5px; color: #8b949e; margin-top: 10px; }
+
+  /* 只在 file:// 打开时显示：页面由本地文件直接打开，接口全是相对路径，必然连不上 */
+  .warn {
+    display: none; background: #fff8e5; border: 1px solid #f0d48a;
+    border-left: 4px solid #d9a013; border-radius: 6px;
+    padding: 12px 15px; margin-bottom: 16px; font-size: 13px; color: #7a5b00;
+  }
+  .warn b { color: #a06a00; }
+  .warn code {
+    background: #fff; border: 1px solid #e8d9ae; padding: 1px 6px;
+    border-radius: 4px; font-family: Consolas, monospace; font-size: 12.5px; color: #8a5a00;
+  }
+  .warn .big { display: block; margin-top: 8px; font-size: 14px; font-weight: 700; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <h1>高并发短链平台 · 演示台</h1>
+    <p>一个随应用发布的单页（<code>static/index.html</code>），直接调用后端真实接口 —— 不是模拟数据。</p>
+  </header>
+
+  <!-- 只在 file:// 直接打开时出现 -->
+  <div class="warn" id="fileWarn">
+    检测到你是<b>直接双击打开本地文件</b>（地址栏以 <code>file:///</code> 开头）。
+    本页的接口请求都用相对路径：只有从 <code>http://localhost:8080/</code> 打开时，它才会打到后端；
+    双击打开时会被解析成 <code>file:///api/...</code>，浏览器只能报 <code>Failed to fetch</code>。
+    <span class="big">→ 请在浏览器地址栏输入 http://localhost:8080/ 再使用</span>
+  </div>
+
+  <!-- ① 创建 -->
+  <section class="card">
+    <h2><span class="n">1</span>创建短链</h2>
+    <label>原始 URL <span class="opt">（必填，http/https 开头）</span></label>
+    <input id="originUrl" value="https://example.com/hello" placeholder="https://...">
+
+    <div class="row">
+      <div>
+        <label>自定义短码 <span class="opt">（可选，4-16 位字母数字）</span></label>
+        <input id="customCode" placeholder="留空则自动生成">
+      </div>
+      <div>
+        <label>过期时间 <span class="opt">（可选）</span></label>
+        <input id="expireTime" type="datetime-local">
+      </div>
+    </div>
+
+    <button id="btnCreate">生成短链</button>
+    <div class="out" id="createOut"></div>
+  </section>
+
+  <!-- ② 访问 -->
+  <section class="card">
+    <h2><span class="n">2</span>访问短链</h2>
+    <label>短码</label>
+    <input id="visitCode" placeholder="例如 ab12cd">
+    <button id="btnVisit" class="ghost">在新窗口打开（触发 302 跳转）</button>
+    <button id="btnBurst" class="ghost">并发连发 30 次（触发 429 限流）</button>
+    <div class="out" id="visitOut"></div>
+    <p class="hint">点开后会真实跳转到目标地址，同时计入访问统计（PV/UV）。跳转接口带 <b>IP 限流</b>：桶容量 <code>20</code>、补充速率 <code>10 个/秒</code> —— 手点再怎么快也就 3 次/秒，<b>永远掏不空桶</b>，所以必须用并发请求才看得到 <code>429</code>。</p>
+  </section>
+
+  <!-- ③ 统计 -->
+  <section class="card">
+    <h2><span class="n">3</span>查询访问统计</h2>
+    <div class="row">
+      <div>
+        <label>短码</label>
+        <input id="statsCode" placeholder="例如 ab12cd">
+      </div>
+      <div>
+        <label>开始日期</label>
+        <input id="startDate" type="date">
+      </div>
+      <div>
+        <label>结束日期</label>
+        <input id="endDate" type="date">
+      </div>
+    </div>
+    <button id="btnStats">查询统计</button>
+    <div class="out" id="statsOut"></div>
+  </section>
+
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+
+/* file:// 直接打开时，相对路径请求无处可去 —— 先提示，再让错误信息自己说清楚 */
+const IS_FILE = location.protocol === 'file:';
+if (IS_FILE) $('fileWarn').style.display = 'block';
+
+/* ---------- 统一请求：后端业务失败也是 HTTP 200 + code != 0，所以不能只看 HTTP 状态码 ---------- */
+async function api(path, options) {
+  try {
+    const res = await fetch(path, options);
+    const text = await res.text();
+    let body = null;
+    try { body = JSON.parse(text); } catch (e) { body = { raw: text.slice(0, 300) }; }
+    return { http: res.status, body };
+  } catch (e) {
+    // fetch 抛异常 = 请求根本没拿到响应：file:// 打开 或 后端没启动
+    const tip = IS_FILE
+      ? '（当前页面是 file:// 打开的，请改用 http://localhost:8080/ 访问）'
+      : '（后端可能没启动，或端口不是 8080）';
+    return { http: 0, body: { message: '请求未发出或连接失败：' + e.message + tip } };
+  }
+}
+
+/* 渲染：成功走 ok 样式，业务失败走 err 样式并显示 traceId */
+function render(el, r, okHtml) {
+  const b = r.body || {};
+  if (r.http >= 200 && r.http < 300 && b.code === 0) {
+    el.innerHTML = '<div class="msg ok">✓ ' + (b.message || '成功') + '</div>' + (okHtml ? okHtml(b.data) : '');
+  } else {
+    const code = b.code !== undefined ? b.code : ('HTTP ' + r.http);
+    const trace = b.traceId ? '<span class="trace">traceId: ' + b.traceId + '</span>' : '';
+    el.innerHTML = '<div class="msg err">✗ [' + code + '] ' + (b.message || '请求失败') + trace + '</div>';
+  }
+}
+
+/* ---------- ① 创建 ---------- */
+$('btnCreate').onclick = async () => {
+  const btn = $('btnCreate');
+  const originUrl = $('originUrl').value.trim();
+  const customCode = $('customCode').value.trim();
+  const expireRaw = $('expireTime').value;
+
+  if (!originUrl) { $('createOut').innerHTML = '<div class="msg err">✗ 原始 URL 不能为空</div>'; return; }
+  if (customCode && !/^[0-9a-zA-Z]{4,16}$/.test(customCode)) {
+    $('createOut').innerHTML = '<div class="msg err">✗ 短码必须为 4-16 位字母或数字</div>'; return;
+  }
+
+  const payload = { originUrl };
+  if (customCode) payload.customCode = customCode;
+  // 后端 @JsonFormat 要的是 "yyyy-MM-dd HH:mm:ss"（不是带 T 的 ISO）
+  if (expireRaw) payload.expireTime = expireRaw.replace('T', ' ') + ':00';
+
+  btn.disabled = true; btn.textContent = '请求中…';
+  const r = await api('/api/link', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+  btn.disabled = false; btn.textContent = '生成短链';
+
+  render($('createOut'), r, d => {
+    $('visitCode').value = d.shortCode;
+    $('statsCode').value = d.shortCode;
+    const localUrl = location.origin + '/' + d.shortCode;
+    return '<div class="kv">'
+      + '<div><b>短码</b><span class="code">' + d.shortCode + '</span></div>'
+      + '<div><b>短链</b><span><a class="short" href="/' + d.shortCode + '" target="_blank">' + localUrl + '</a></span></div>'
+      + '<div><b>原始 URL</b><span>' + d.originUrl + '</span></div>'
+      + '<div><b>过期时间</b><span>' + (d.expireTime || '永久有效') + '</span></div>'
+      + '<div><b>创建时间</b><span>' + (d.createTime || '-') + '</span></div>'
+      + '</div>';
+  });
+};
+
+/* ---------- ② 访问 ---------- */
+$('btnVisit').onclick = () => {
+  const code = $('visitCode').value.trim();
+  if (!code) { $('visitOut').innerHTML = '<div class="msg err">✗ 请先填短码</div>'; return; }
+  window.open('/' + code, '_blank');
+  $('visitOut').innerHTML = '<div class="msg ok">已在新窗口打开 <b>/' + code + '</b> —— 若跳转成功说明短码有效；若停在 404/410 页面，就是短码不存在/已禁用或已过期。</div>';
+};
+
+/* 并发连发：手点掏不空令牌桶（容量 20、每秒补 10），只能靠并发把桶打空 */
+$('btnBurst').onclick = async () => {
+  const btn = $('btnBurst'), el = $('visitOut');
+  const code = $('visitCode').value.trim();
+  if (!code) { el.innerHTML = '<div class="msg err">✗ 请先填短码</div>'; return; }
+
+  const N = 30;
+  btn.disabled = true; btn.textContent = '连发中…';
+  const t0 = performance.now();
+  const results = await Promise.all(Array.from({ length: N }, () =>
+    // redirect:'manual' —— 别真跟着跳到目标站，只看这一次请求自身的状态
+    fetch('/' + encodeURIComponent(code), { redirect: 'manual' }).catch(() => null)
+  ));
+  const ms = Math.max(Math.round(performance.now() - t0), 1);
+
+  let pass = 0, limited = 0, fail = 0;
+  results.forEach(r => {
+    if (!r) fail++;
+    // 302 在 manual 模式下变成 opaqueredirect，浏览器把 status 藏成 0
+    else if (r.status === 429) limited++;
+    else if (r.status === 302 || r.status === 0) pass++;
+    else fail++;
+  });
+
+  btn.disabled = false; btn.textContent = '并发连发 30 次（触发 429 限流）';
+  el.innerHTML =
+    '<div class="msg ' + (limited > 0 ? 'ok' : 'err') + '">连发 ' + N + ' 次，耗时 ' + ms
+      + ' ms（约 ' + Math.round(N / ms * 1000) + ' req/s）</div>'
+    + '<div class="kv">'
+    + '<div><b>放行</b><span>' + pass + ' 次 —— 302 跳转（manual 模式下浏览器把状态码藏成 0）</span></div>'
+    + '<div><b>限流</b><span>' + limited + ' 次 —— 429 + Retry-After 响应头</span></div>'
+    + (fail ? '<div><b>失败</b><span>' + fail + ' 次 —— 网络层根本没拿到响应</span></div>' : '')
+    + '</div>'
+    + '<p class="empty-tip">桶容量 20、每秒补 10：所以 30 次并发里前面二十几次放行、其余 429。隔一会儿再点会「又能过了」，因为桶被补满了。</p>';
+};
+
+/* ---------- ③ 统计 ---------- */
+$('btnStats').onclick = async () => {
+  const btn = $('btnStats');
+  const code = $('statsCode').value.trim();
+  if (!code) { $('statsOut').innerHTML = '<div class="msg err">✗ 请先填短码</div>'; return; }
+  const s = $('startDate').value, e = $('endDate').value;
+  if (!s || !e) { $('statsOut').innerHTML = '<div class="msg err">✗ 请选择日期范围</div>'; return; }
+
+  btn.disabled = true; btn.textContent = '查询中…';
+  const r = await api('/api/link/' + encodeURIComponent(code) + '/stats'
+      + '?startDate=' + s + '&endDate=' + e, { method: 'GET' });
+  btn.disabled = false; btn.textContent = '查询统计';
+
+  render($('statsOut'), r, d => {
+    let html = '<div class="stats-top">'
+      + '<div class="box"><div class="v">' + d.totalPv + '</div><div class="k">总访问量 PV</div></div>'
+      + '<div class="box"><div class="v">' + d.totalUv + '</div><div class="k">人日合计 UV（各天之和）</div></div>'
+      + '</div>';
+    const items = d.items || [];
+    if (items.length) {
+      html += '<table><thead><tr><th>日期</th><th style="text-align:right">PV</th><th style="text-align:right">UV</th></tr></thead><tbody>';
+      items.forEach(it => {
+        html += '<tr><td>' + it.statDate + '</td><td class="num">' + it.pv + '</td><td class="num">' + it.uv + '</td></tr>';
+      });
+      html += '</tbody></table>';
+    } else {
+      html += '<p class="empty-tip">这段时间没有访问记录 —— 先用上面第 ② 步访问几次再回来查。</p>';
+    }
+    return html;
+  });
+};
+
+/* 默认日期 = 今天（用本地时间，别用 toISOString 会差时区） */
+(function initDates() {
+  const d = new Date();
+  const p = n => String(n).padStart(2, '0');
+  const today = d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
+  $('startDate').value = today;
+  $('endDate').value = today;
+})();
+</script>
+</body>
+</html>
