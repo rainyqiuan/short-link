@@ -29,7 +29,7 @@ public class RedisKeyConstant {
     public static final String LIMIT = "shortlink:limit:";
 
     /** Lua 限流脚本自检时用的占位 key（启动时拿它试跑一次脚本，用完即删）。 */
-    public static final String TEST_INIT = "shortlink:test:init:key";
+    public static final String TEST_INIT_LIMIT = "shortlink:test:init:limit";
 
     /** Lua 日志脚本自检时用的占位 key（启动时拿它试跑一次脚本，用完即删）。 */
     public static final String TEST_INIT_ACCESS = "shortlink:test:init:access";

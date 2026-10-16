@@ -77,8 +77,8 @@ public class RateLimitServiceImpl implements RateLimitService {
         try {
             // 用一个临时无用的 key 和参数，试跑一次脚本
             // 如果 Lua 语法有错，或者类型不对，这里会立刻抛出 RedisSystemException
-            stringRedisTemplate.execute(script, List.of(RedisKeyConstant.TEST_INIT), "1", "1", "0");
-            stringRedisTemplate.execute(script, List.of(RedisKeyConstant.TEST_INIT), "1", "1", "0");
+            stringRedisTemplate.execute(script, List.of(RedisKeyConstant.TEST_INIT_LIMIT), "1", "1", "0");
+            stringRedisTemplate.execute(script, List.of(RedisKeyConstant.TEST_INIT_LIMIT), "1", "1", "0");
             log.info("Lua 限流脚本自检通过，加载成功");
         } catch (RedisSystemException e) {
             // 在启动时抛出异常，直接阻止 Spring 容器启动
@@ -88,7 +88,7 @@ public class RateLimitServiceImpl implements RateLimitService {
         } finally {
             // 清理可能产生的临时数据（其实不清理也行，因为是假 key，会自己过期）
             try {
-                stringRedisTemplate.delete(RedisKeyConstant.TEST_INIT);
+                stringRedisTemplate.delete(RedisKeyConstant.TEST_INIT_LIMIT);
             } catch (Exception e) {
                 log.warn("Redis 限流脚本初始化失败，清理临时数据时出错", e);
             }
