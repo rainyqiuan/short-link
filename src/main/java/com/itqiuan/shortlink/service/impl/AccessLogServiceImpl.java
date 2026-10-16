@@ -9,10 +9,14 @@ import com.itqiuan.shortlink.config.ShortLinkProperties;
 import com.itqiuan.shortlink.entity.LinkAccessLog;
 import com.itqiuan.shortlink.mapper.LinkAccessLogMapper;
 import com.itqiuan.shortlink.service.AccessLogService;
+import jakarta.annotation.PostConstruct;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.core.io.ClassPathResource;
 import org.springframework.dao.DataAccessException;
+import org.springframework.data.redis.RedisSystemException;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.context.request.RequestAttributes;
@@ -32,6 +36,10 @@ import java.util.stream.Collectors;
  * <p>
  * 队列还有上限（accessQueueMaxSize）：超了就从头部裁掉最旧的 —— 宁可丢最早的历史日志，
  * 也不让队列无限涨把 Redis 内存吃穿。
+ * <p>
+ * "入队 + 容量裁剪"在<b>同一段 Lua 里原子完成</b>（一次 EVAL / EVALSHA），而不是发两条命令：
+ * 既省一次往返，也消掉"入队"与"裁剪"之间被别的客户端插队的窗口。
+ * 脚本契约（KEYS/ARGV/返回值三态）见 {@code resources/lua/access_log_enqueue.lua} 头部注释。
  */
 @Slf4j
 @Service
@@ -41,8 +49,11 @@ public class AccessLogServiceImpl extends ServiceImpl<LinkAccessLogMapper, LinkA
     private final ObjectMapper objectMapper;
     private final TransactionTemplate transactionTemplate;
     private final ShortLinkProperties shortLinkProperties;
+    private final DefaultRedisScript<Long> script;
 
-    /** UA / Referer 的截断长度：这两个字段可能很长，截断避免撑爆库里的列。 */
+    /**
+     * UA / Referer 的截断长度：这两个字段可能很长，截断避免撑爆库里的列。
+     */
     private static final int MAX = 512;
 
     public AccessLogServiceImpl(StringRedisTemplate stringRedisTemplate, ObjectMapper objectMapper, TransactionTemplate transactionTemplate, ShortLinkProperties shortLinkProperties) {
@@ -50,14 +61,20 @@ public class AccessLogServiceImpl extends ServiceImpl<LinkAccessLogMapper, LinkA
         this.objectMapper = objectMapper;
         this.transactionTemplate = transactionTemplate;
         this.shortLinkProperties = shortLinkProperties;
+        this.script = new DefaultRedisScript<>();
+        this.script.setLocation(new ClassPathResource("lua/access_log_enqueue.lua"));
+        this.script.setResultType(Long.class);
     }
 
     /**
-     * 记录一次跳转：把日志序列化后 RPUSH 进队列，紧接着 LTRIM 保留最后 N 条。
+     * 记录一次跳转：把日志交给 Lua 脚本入队（<b>一次往返</b>完成"入队 + 容量裁剪"）。
      * <p>
-     * ① 取请求信息走 {@code RequestContextHolder}：可能有异步场景拿不到请求上下文，
-     *   拿到就跳过（不能让统计把跳转搞挂）；
-     * ② 入队失败（序列化/连接异常）只记日志 —— 丢一条日志只是统计少一次，不影响跳转本身。
+     * ① 取请求信息走 {@code RequestContextHolder}：异步 / 非请求线程<b>拿不到</b>请求上下文，
+     *   拿不到就跳过（不能让统计把跳转搞挂）。
+     *   ⚠️ 也正因如此，本方法<b>不能直接挪进线程池（@Async）执行</b>：换了线程就恒定走这个跳过分支，
+     *   日志会全部静默消失、而接口照常 200。真要异步，必须先在当前线程把 ip / UA / Referer 取出来传进去；
+     * ② 入队失败（序列化 / 连接异常）只记日志 —— 丢一条日志只是统计少一次，不影响跳转本身；
+     * ③ 脚本返回三态：0 = 正常；&gt;0 = 本次被裁掉的条数；-1 = cap 参数非法（见脚本注释）。
      */
     @Override
     public void record(String shortCode) {
@@ -79,8 +96,8 @@ public class AccessLogServiceImpl extends ServiceImpl<LinkAccessLogMapper, LinkA
         try {
             int accessQueueMaxSize = shortLinkProperties.getAccessQueueMaxSize();
             String accessLogBOJson = objectMapper.writeValueAsString(accessLogBO);
-            stringRedisTemplate.opsForList().rightPush(RedisKeyConstant.ACCESS_QUEUE, accessLogBOJson);
-            stringRedisTemplate.opsForList().trim(RedisKeyConstant.ACCESS_QUEUE,  -accessQueueMaxSize, -1);
+            long dropped = stringRedisTemplate.execute(script, List.of(RedisKeyConstant.ACCESS_QUEUE), accessLogBOJson, String.valueOf(accessQueueMaxSize));
+
         } catch (JsonProcessingException e) {
             log.error("json序列化失败", e);
         } catch (DataAccessException e) {
@@ -161,7 +178,7 @@ public class AccessLogServiceImpl extends ServiceImpl<LinkAccessLogMapper, LinkA
                 }
 
             }
-        }catch (DataAccessException e){
+        } catch (DataAccessException e) {
             transactionStatus = Status.ABORTED;
             log.warn("数据访问失败", e);
         } catch (RuntimeException e) {
@@ -171,16 +188,16 @@ public class AccessLogServiceImpl extends ServiceImpl<LinkAccessLogMapper, LinkA
         } finally {
             long costMs = System.currentTimeMillis() - startedAt;
             switch (transactionStatus) {
-                case CLEARED:{
-                    if(totalFlushed==0){
+                case CLEARED: {
+                    if (totalFlushed == 0) {
                         log.debug("访问日志搬运完成，但无数据入库，耗时 {} ms", costMs);
-                    }else{
+                    } else {
                         log.info("访问日志搬运完成，入库 {} 条，耗时 {} ms", totalFlushed, costMs);
                     }
 
                 }
 
-                    break;
+                break;
                 case LIMIT:
                     log.info("访问日志搬运达到轮次上限，入库 {} 条，可能还有剩余，耗时 {} ms", totalFlushed, costMs);
                     break;
@@ -191,12 +208,57 @@ public class AccessLogServiceImpl extends ServiceImpl<LinkAccessLogMapper, LinkA
         }
     }
 
-    /** 截断到 max 长度；null 视为空串。 */
+    /**
+     * 启动自检：拿临时 key 试跑两次入队脚本。两个作用：
+     * <ol>
+     *   <li><b>尽早暴露脚本错误</b>：Lua 语法 / 类型错误会在第一次 execute 时抛
+     *       {@link RedisSystemException}。这里把它升级成启动失败 —— 否则它会被
+     *       {@link #record(String)} 里的 {@code catch (DataAccessException)} 吞掉
+     *       （{@code RedisSystemException} 正是其子类），还被记成"redis连接异常"，
+     *       排障时会往网络方向白查半天；</li>
+     *   <li><b>预热 Redis 脚本缓存</b>：Spring 的执行顺序是"先 EVALSHA、遇 NOSCRIPT 才回退
+     *       带脚本体的 EVAL"，而 Redis 的脚本缓存<b>不持久化</b>（重启即空）。启动时跑一次，
+     *       第一个真实请求就能直接命中 EVALSHA，否则它要付两次往返 + 一次异常构造。</li>
+     * </ol>
+     * 跑两次是为了覆盖"队列不存在（新建）"和"队列已存在"两条分支 —— 只跑一次证明不了后者；
+     * 参数刻意给 cap=1，第二次会踩到"超限裁剪"分支，顺带把那条路也走到。
+     * Redis 本身不可用（DataAccessException）只 warn 跳过 —— 那是环境问题，不是脚本问题。
+     */
+    @PostConstruct
+    public void initScript() {
+        try {
+            // 参数顺序照脚本契约：ARGV[1] = 日志 JSON（自检给个占位串），ARGV[2] = cap。
+            // ⚠️ 只能传这两个 —— 限流脚本要 3 个 ARGV，从它那儿抄代码时很容易顺手多带一个 "0"；
+            //   本脚本从不读 ARGV[3]，多传不会报错，但会让后来人以为脚本有第 3 个参数。
+            stringRedisTemplate.execute(script, List.of(RedisKeyConstant.TEST_INIT_ACCESS), "1", "1");
+            stringRedisTemplate.execute(script, List.of(RedisKeyConstant.TEST_INIT_ACCESS), "1", "1");
+            log.info("Lua 访问日志入队脚本自检通过，加载成功");
+        } catch (RedisSystemException e) {
+            // 在启动时抛出异常，直接阻止 Spring 容器启动
+            throw new RuntimeException("【致命】Lua 访问日志入队脚本初始化失败，请检查脚本逻辑！", e);
+        } catch (DataAccessException e) {
+            log.warn("Redis 不可用，跳过 Lua 脚本自检", e);
+        } finally {
+            // 清理可能产生的临时数据（其实不清理也行，因为是假 key，会自己过期）
+            try {
+                stringRedisTemplate.delete(RedisKeyConstant.TEST_INIT_ACCESS);
+            } catch (Exception e) {
+                log.warn("Lua 访问日志入队脚本自检后，清理临时数据时出错", e);
+            }
+        }
+    }
+
+
+    /**
+     * 截断到 max 长度；null 视为空串。
+     */
     private static String truncate(String s, int max) {
         return s == null ? "" : (s.length() <= max ? s : s.substring(0, max));
     }
 
-    /** BO → entity（落库前的字段搬运）。 */
+    /**
+     * BO → entity（落库前的字段搬运）。
+     */
     private static LinkAccessLog toEntity(AccessLogBO accessLogBO) {
         LinkAccessLog linkAccessLog = new LinkAccessLog();
         linkAccessLog.setShortCode(accessLogBO.getShortCode());

@@ -28,8 +28,11 @@ public class RedisKeyConstant {
     /** 限流令牌桶前缀，完整 key 形如 {@code shortlink:limit:{route}:{ip}}。 */
     public static final String LIMIT = "shortlink:limit:";
 
-    /** Lua 脚本自检时用的占位 key（启动时拿它试跑一次脚本，用完即删）。 */
+    /** Lua 限流脚本自检时用的占位 key（启动时拿它试跑一次脚本，用完即删）。 */
     public static final String TEST_INIT = "shortlink:test:init:key";
+
+    /** Lua 日志脚本自检时用的占位 key（启动时拿它试跑一次脚本，用完即删）。 */
+    public static final String TEST_INIT_ACCESS = "shortlink:test:init:access";
 
     /** 按天 UV 去重前缀（HyperLogLog），完整 key 形如 {@code shortlink:uv:{code}:{date}}。 */
     public static final String UV = "shortlink:uv:";
