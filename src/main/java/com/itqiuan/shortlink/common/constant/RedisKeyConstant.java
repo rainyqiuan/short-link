@@ -31,7 +31,17 @@ public class RedisKeyConstant {
     /** Lua 限流脚本自检时用的占位 key（启动时拿它试跑一次脚本，用完即删）。 */
     public static final String TEST_INIT_LIMIT = "shortlink:test:init:limit";
 
-    /** Lua 日志脚本自检时用的占位 key（启动时拿它试跑一次脚本，用完即删）。 */
+    /**
+     * Lua 日志脚本自检时用的占位 key（启动时拿它试跑一次脚本，用完即删）。
+     * <p>
+     * 🔴 <b>绝不能换成 {@link #ACCESS_QUEUE}</b>。自检传的 cap 是 {@code "1"}，拿真队列试跑就是
+     * {@code RPUSH 真队列} + {@code LTRIM -1 -1} → <b>把真实访问日志裁到只剩 1 条</b>。
+     * 实测过：灌 124 条后启动 → {@code LLEN} = 1，而日志里只有"自检通过"。
+     * 每次重启静默清空一次，且不报任何错。
+     * <p>
+     * 也不需要带随机后缀：一个 key 只有一种类型，按脚本各分一个 key 之后，即使多实例并发自检，
+     * 也只是"对同一个 key 做同类型操作"，不可能 {@code WRONGTYPE}。
+     */
     public static final String TEST_INIT_ACCESS = "shortlink:test:init:access";
 
     /** 按天 UV 去重前缀（HyperLogLog），完整 key 形如 {@code shortlink:uv:{code}:{date}}。 */

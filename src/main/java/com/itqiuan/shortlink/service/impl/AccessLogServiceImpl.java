@@ -51,8 +51,45 @@ public class AccessLogServiceImpl extends ServiceImpl<LinkAccessLogMapper, LinkA
     private final TransactionTemplate transactionTemplate;
     private final ShortLinkProperties shortLinkProperties;
     private final DefaultRedisScript<Long> script;
+
+    /**
+     * 因容量封顶被裁掉的日志条数（累计）：脚本返回 {@code >0} 时 {@code add(dropped)}。
+     * <p>
+     * ⭐ 用 {@link LongAdder} 而不是 {@code AtomicLong}：{@link #record(String)} 由 Tomcat 工作线程
+     * 并发调用（实测同一批请求落在 {@code exec-5/6/7} 三个线程上），{@code AtomicLong} 的高并发自增
+     * 是<b>单点 CAS 竞争</b>，{@code LongAdder} 分散到 Cell 数组分段累加。代价是 {@link LongAdder#sum()}
+     * <b>不是原子快照</b>，并发下可能略偏 —— 这两个数只用于告警，不参与任何业务判断，偏一点无所谓。
+     * <p>
+     * ⚠️ 它也<b>不能</b>注册成 Spring Bean、不该走构造器注入：无状态 JDK 工具类型，没有配置、
+     * 没有生命周期、不会被替换，进容器只会多一层无意义的间接，还把它变成全局单例。
+     * 曾经把这两个参数写进构造器（想走依赖注入）→ 应用直接起不来：
+     * {@code required a bean of type 'java.util.concurrent.atomic.LongAdder' that could not be found}。
+     * 正解就是这里 —— <b>字段声明处 new</b>。
+     */
     private final LongAdder droppedByCapTotal = new LongAdder();
+
+    /**
+     * 入队失败次数（累计）：只在 {@code catch (DataAccessException)} 里 {@code increment()}。
+     * <p>
+     * 与 {@link #droppedByCapTotal} 同为 {@link LongAdder}，理由见上。
+     * 注意它<b>不统计</b> JSON 序列化失败 —— 那是代码/数据问题，不是环境问题，混进来会让排障时分不清
+     * "是 Redis 挂了还是 BO 写坏了"。
+     */
     private final LongAdder enqueueFailureTotal = new LongAdder();
+
+    /**
+     * 上一次在 flush 周期里已经上报出去的两个累计值；{@code delta = sum() - lastReported}。
+     * <p>
+     * ⚠️⭐ 这两个字段就是"增量上报窗口连续"的全部实现，<b>别退化成"在 flush 开头读基线"</b>：
+     * flush 本身只跑几十~几百毫秒，而两次 flush 之间隔着一整分钟。落在
+     * "上次 flush 结束 → 本次 flush 开始"这段空隙里的增量<b>不属于任何窗口</b>，会被永久吞掉。
+     * 实测过：cap 压到 5 连发 8 跳，计数器到 3，而 flush 在开头读到的基线<b>也是 3</b> → delta = 0 → 一条告警都没有。
+     * 记住"上次报过的值"，每个增量才有且只有一个归属窗口。
+     * <p>
+     * 不加锁、不加 {@code volatile}：{@code @Scheduled} 默认<b>单线程</b>（日志里恒为 {@code [scheduling-1]}），
+     * 这两个字段只被那一个线程读写。而 {@code record()} 是多线程，才需要上面的 {@code LongAdder} ——
+     * <b>两个工具各自对应各自的实际并发模型，不是"越重越安全"</b>。
+     */
     private long lastReportedDropped;
     private long lastReportedFailed;
     /**
@@ -98,20 +135,40 @@ public class AccessLogServiceImpl extends ServiceImpl<LinkAccessLogMapper, LinkA
         accessLogBO.setAccessTime(now);
         accessLogBO.setStatDate(now.toLocalDate());
         try {
+            // cap 每跳读一次配置（Properties 是内存对象，代价可忽略）。不缓存成字段，
+            // 是为了不给自己造第二个真源 —— 队列上限的唯一出处就是 application.yml。
             int accessQueueMaxSize = shortLinkProperties.getAccessQueueMaxSize();
             String accessLogBOJson = objectMapper.writeValueAsString(accessLogBO);
+            // ⚠️ cap 必须 String.valueOf 成字符串：StringRedisTemplate 的 value 序列化器是
+            //    StringRedisSerializer，只吃 String —— 直接传 int 会在序列化阶段就抛异常。
             long dropped = stringRedisTemplate.execute(script, List.of(RedisKeyConstant.ACCESS_QUEUE), accessLogBOJson, String.valueOf(accessQueueMaxSize));
+            // 脚本返回值是「三态」，不是一个布尔。"0 什么都不做"必须显式存在，见下。
             if (dropped == 0) {
-
+                // 常态：队列没到上限，什么都没裁。
+                // 刻意保留这个「空分支」：让三态在代码结构上完整可见。若收成 `if (dropped > 0)`，
+                // 后来人会以为返回值只有两种可能，将来脚本加第四种返回值时没人会回来改这里。
+                // 也绝不能在这里打日志 —— 这是跳转热路径，每跳一次都会跑。
             } else if (dropped > 0) {
                 droppedByCapTotal.add(dropped);
+                // debug 级：灌爆场景要能看见"确实裁了"，但正常流量不该被刷屏（默认 info 不输出）。
                 log.debug("入队成功，队列超限裁掉最旧 {} 条", dropped);
             } else {
+                // 只剩 -1：cap 非法（非数字 / <= 0），脚本「既没入队也没裁剪」→ 本条日志已丢。
+                // 生产路径走不到（ShortLinkProperties 上 @Min(1) + @Validated，配置坏了应用根本起不来），
+                // 但万一走到就是"丢全部新日志"，所以是 error 不是 debug。
                 log.error("入队失败，cap 参数非法，值为{}", accessQueueMaxSize);
             }
         } catch (JsonProcessingException e) {
+            // 序列化失败意味着 BO 写坏了，是代码问题 —— 刻意「不」计入 enqueueFailureTotal，
+            // 否则"Redis 挂了"和"BO 写坏了"会混进同一个数字，排障时分不清该往哪查。
             log.error("json序列化失败", e);
         } catch (DataAccessException e) {
+            // 连接失败 / 超时 / 服务端报错都归到这里（LettuceExceptionConverter 统一转成 DataAccessException）。
+            // 只计数、不往外抛：丢一条日志只是统计少一次，不能让"记录"把"跳转"搞挂。
+            // ⚠️ RedisSystemException（脚本语法错 / WRONGTYPE / 参数类型不对）也是 DataAccessException 的子类，
+            //    会被这条 catch 吞掉并伪装成"连接异常" —— 所以脚本本身的问题不能指望这里暴露，
+            //    必须由 initScript() 在启动期拦死（见该方法注释）。
+            //    日志文案沿用"redis连接异常"（历史命名，实际也涵盖服务端报错），见 docs/05 三之六十 §4。
             enqueueFailureTotal.increment();
             log.warn("redis连接异常", e);
         }
@@ -183,6 +240,11 @@ public class AccessLogServiceImpl extends ServiceImpl<LinkAccessLogMapper, LinkA
                     totalFlushed += linkAccessLogList.size();
                 }
 
+                // trim(fetched, -1)：保留 [fetched, 末尾] 这个区间，等于删掉刚搬走的这 fetched 条。
+                // ⚠️ 它在 if (!empty) 之外、无条件执行 —— 这是「游标推进」，不是「落库确认」：
+                //    反序列化失败的坏条目本来也写不进库，若不推进，下一轮还会取到同一批坏数据，
+                //    flush 会永远卡在这里。真正的"落库成功才裁"由「代码位置」保证：
+                //    saveBatch 抛异常时走不到这一行（异常直接跳到 catch）。
                 stringRedisTemplate.opsForList().trim(RedisKeyConstant.ACCESS_QUEUE, fetched, -1L);
                 if (fetched < maxFetch) {
                     transactionStatus = Status.CLEARED;
@@ -216,15 +278,28 @@ public class AccessLogServiceImpl extends ServiceImpl<LinkAccessLogMapper, LinkA
                     log.warn("访问日志搬运异常中断，入库 {} 条，耗时 {} ms", totalFlushed, costMs);
                     break;
             }
-            long droppedDelta = droppedByCapTotal.sum() - lastReportedDropped;
-            lastReportedDropped = droppedByCapTotal.sum();
+            // ---------- 增量上报：把"丢了多少"从静默变成每分钟最多一行 warn ----------
+            // 位置：finally 里、switch 「之后」—— ① 三种 transactionStatus（CLEARED / LIMIT / ABORTED）
+            // 都会走到，放进某个 case 就会漏报；② flush 每 60 秒一次，它自己就是节流阀，
+            // 放到 record() 里会被一波流量刷爆日志、还拖慢跳转。
+            // ⚠️ 先 sum() 到局部变量再用：LongAdder.sum()「不是原子快照」，同一个表达式里连调两次，
+            //    中间被并发更新就会写出"本轮新增 3 条（累计 4）"这种自相矛盾的数字。
+            long droppedNow = droppedByCapTotal.sum();
+            long droppedDelta = droppedNow - lastReportedDropped;
+            // ⚠️ 这行必须在 if 外面无条件执行：delta 为 0 时也要把基线同步到当前值，
+            //    否则下次上报会把"已经报过的"再算一遍。
+            lastReportedDropped = droppedNow;
             if (droppedDelta > 0) {
-                log.warn("本轮新增丢弃 {} 条（累计 {}）", droppedDelta, droppedByCapTotal.sum());
+                log.warn("本轮新增丢弃 {} 条（累计 {}）", droppedDelta, droppedNow);
             }
-            long enqueueFailureDelta = enqueueFailureTotal.sum() - lastReportedFailed;
-            lastReportedFailed = enqueueFailureTotal.sum();
+
+            // 两个 if 分开写、「不合并」：丢弃和入队失败语义不同，合成一行会变成"任一非零就一起报"，
+            // 读日志时反而分不清是哪一件事、发生了多少。
+            long failedNow = enqueueFailureTotal.sum();
+            long enqueueFailureDelta = failedNow - lastReportedFailed;
+            lastReportedFailed = failedNow;
             if (enqueueFailureDelta > 0) {
-                log.warn("本轮新增入队失败 {} 次（累计 {} 次）", enqueueFailureDelta, enqueueFailureTotal.sum());
+                log.warn("本轮新增入队失败 {} 次（累计 {} 次）", enqueueFailureDelta, failedNow);
             }
         }
     }
@@ -244,6 +319,20 @@ public class AccessLogServiceImpl extends ServiceImpl<LinkAccessLogMapper, LinkA
      * 跑两次是为了覆盖"队列不存在（新建）"和"队列已存在"两条分支 —— 只跑一次证明不了后者；
      * 参数刻意给 cap=1，第二次会踩到"超限裁剪"分支，顺带把那条路也走到。
      * Redis 本身不可用（DataAccessException）只 warn 跳过 —— 那是环境问题，不是脚本问题。
+     * <p>
+     * 🔴 <b>自检的 KEYS[1] 必须是独立常量 {@link RedisKeyConstant#TEST_INIT_ACCESS}，绝不能是
+     * {@link RedisKeyConstant#ACCESS_QUEUE}。</b>
+     * 最初从限流自检抄这段代码时，把 key 写成了<b>真队列</b>，而 cap 又照抄了限流的 {@code "1"}。
+     * 于是启动瞬间发生的是 {@code RPUSH 真队列 + LTRIM -1 -1} —— <b>把队列裁到只剩 1 条</b>。
+     * <p>
+     * 实测复现：先灌 124 条真实日志再启动 → {@code LLEN} 从 <b>124 变成 1</b>，内容变成自检塞的占位串
+     * {@code "1"}；而日志里只有一句"自检通过，加载成功"。应用启动成功、跳转照常 302、
+     * 定时任务照常搬运 —— 只是<b>每次重启都静默清空当时队列里的真实访问日志</b>。
+     * 而 {@link #record(String)} 一直在塞、{@link #flush()} 一分钟才搬一次，
+     * "重启时队列非空"是<b>常态</b>而不是边角情况。
+     * <p>
+     * 另一个教训：判断"自检有没有碰生产数据"，<b>只看启动前后两个点会漏掉中间态</b>，
+     * 必须采 {@code LLEN} 的<b>时间序列</b>（覆盖整个启动窗口）。
      */
     @PostConstruct
     public void initScript() {
@@ -251,6 +340,7 @@ public class AccessLogServiceImpl extends ServiceImpl<LinkAccessLogMapper, LinkA
             // 参数顺序照脚本契约：ARGV[1] = 日志 JSON（自检给个占位串），ARGV[2] = cap。
             // ⚠️ 只能传这两个 —— 限流脚本要 3 个 ARGV，从它那儿抄代码时很容易顺手多带一个 "0"；
             //   本脚本从不读 ARGV[3]，多传不会报错，但会让后来人以为脚本有第 3 个参数。
+            // 🔴 KEYS[1] 是独立的 TEST_INIT_ACCESS，不是 ACCESS_QUEUE —— 写错这一行的后果见方法注释。
             stringRedisTemplate.execute(script, List.of(RedisKeyConstant.TEST_INIT_ACCESS), "1", "1");
             stringRedisTemplate.execute(script, List.of(RedisKeyConstant.TEST_INIT_ACCESS), "1", "1");
             log.info("Lua 访问日志入队脚本自检通过，加载成功");

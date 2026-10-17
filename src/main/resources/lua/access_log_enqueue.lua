@@ -5,6 +5,10 @@
 --   0  → 正常入队，未触发裁剪
 --   >0 → 本次因封顶被裁掉的条数（每 push 一次最多裁 1 条；只有队列被外部灌过才会 >1）
 --   -1 → cap 参数非法，本次既没入队也没裁剪（Java 侧据此打 error）
+--
+-- 为什么返回"条数"而不是 true/false：Java 侧要把它累加进计数器（droppedByCapTotal），
+-- 在 flush 周期里打"本轮新增丢弃 N 条"。只返回布尔的话，就只能知道"发生过"，不知道"丢了多少"。
+-- 为什么 cap 非法用 -1 而不是 0：0 已经是"正常入队"的语义，两者必须能区分开。
 
 local queueKey = KEYS[1]
 local logJson = ARGV[1]
@@ -31,7 +35,9 @@ if currentLen > cap then
     -- 计算需要丢弃多少条（一般是超出上限的部分）
     local dropped = currentLen - cap
     
-    -- LTRIM -cap -1：只保留从倒数第 cap 个到最后一个元素
+    -- LTRIM -cap -1：只保留从倒数第 cap 个到最后一个元素（负下标从尾部数，-1 = 最后一个）
+    -- 语义核对：currentLen = cap+1 时，起始下标是 (cap+1)-cap = 1 → 保留 index 1..cap，
+    -- 正好只删掉最旧的 1 条。所以常态下 dropped 恒为 1；只有队列被外部一次灌进多条时才会 >1（见文件头）。
     redis.call('LTRIM', queueKey, -cap, -1)
     
     -- 返回本次丢弃的条数
