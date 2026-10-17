@@ -26,6 +26,7 @@ import org.springframework.web.context.request.ServletRequestAttributes;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.concurrent.atomic.LongAdder;
 import java.util.stream.Collectors;
 
 /**
@@ -50,7 +51,10 @@ public class AccessLogServiceImpl extends ServiceImpl<LinkAccessLogMapper, LinkA
     private final TransactionTemplate transactionTemplate;
     private final ShortLinkProperties shortLinkProperties;
     private final DefaultRedisScript<Long> script;
-
+    private final LongAdder droppedByCapTotal = new LongAdder();
+    private final LongAdder enqueueFailureTotal = new LongAdder();
+    private long lastReportedDropped;
+    private long lastReportedFailed;
     /**
      * UA / Referer 的截断长度：这两个字段可能很长，截断避免撑爆库里的列。
      */
@@ -70,9 +74,9 @@ public class AccessLogServiceImpl extends ServiceImpl<LinkAccessLogMapper, LinkA
      * 记录一次跳转：把日志交给 Lua 脚本入队（<b>一次往返</b>完成"入队 + 容量裁剪"）。
      * <p>
      * ① 取请求信息走 {@code RequestContextHolder}：异步 / 非请求线程<b>拿不到</b>请求上下文，
-     *   拿不到就跳过（不能让统计把跳转搞挂）。
-     *   ⚠️ 也正因如此，本方法<b>不能直接挪进线程池（@Async）执行</b>：换了线程就恒定走这个跳过分支，
-     *   日志会全部静默消失、而接口照常 200。真要异步，必须先在当前线程把 ip / UA / Referer 取出来传进去；
+     * 拿不到就跳过（不能让统计把跳转搞挂）。
+     * ⚠️ 也正因如此，本方法<b>不能直接挪进线程池（@Async）执行</b>：换了线程就恒定走这个跳过分支，
+     * 日志会全部静默消失、而接口照常 200。真要异步，必须先在当前线程把 ip / UA / Referer 取出来传进去；
      * ② 入队失败（序列化 / 连接异常）只记日志 —— 丢一条日志只是统计少一次，不影响跳转本身；
      * ③ 脚本返回三态：0 = 正常；&gt;0 = 本次被裁掉的条数；-1 = cap 参数非法（见脚本注释）。
      */
@@ -97,10 +101,18 @@ public class AccessLogServiceImpl extends ServiceImpl<LinkAccessLogMapper, LinkA
             int accessQueueMaxSize = shortLinkProperties.getAccessQueueMaxSize();
             String accessLogBOJson = objectMapper.writeValueAsString(accessLogBO);
             long dropped = stringRedisTemplate.execute(script, List.of(RedisKeyConstant.ACCESS_QUEUE), accessLogBOJson, String.valueOf(accessQueueMaxSize));
+            if (dropped == 0) {
 
+            } else if (dropped > 0) {
+                droppedByCapTotal.add(dropped);
+                log.debug("入队成功，队列超限裁掉最旧 {} 条", dropped);
+            } else {
+                log.error("入队失败，cap 参数非法，值为{}", accessQueueMaxSize);
+            }
         } catch (JsonProcessingException e) {
             log.error("json序列化失败", e);
         } catch (DataAccessException e) {
+            enqueueFailureTotal.increment();
             log.warn("redis连接异常", e);
         }
 
@@ -196,7 +208,6 @@ public class AccessLogServiceImpl extends ServiceImpl<LinkAccessLogMapper, LinkA
                     }
 
                 }
-
                 break;
                 case LIMIT:
                     log.info("访问日志搬运达到轮次上限，入库 {} 条，可能还有剩余，耗时 {} ms", totalFlushed, costMs);
@@ -204,6 +215,16 @@ public class AccessLogServiceImpl extends ServiceImpl<LinkAccessLogMapper, LinkA
                 case ABORTED:
                     log.warn("访问日志搬运异常中断，入库 {} 条，耗时 {} ms", totalFlushed, costMs);
                     break;
+            }
+            long droppedDelta = droppedByCapTotal.sum() - lastReportedDropped;
+            lastReportedDropped = droppedByCapTotal.sum();
+            if (droppedDelta > 0) {
+                log.warn("本轮新增丢弃 {} 条（累计 {}）", droppedDelta, droppedByCapTotal.sum());
+            }
+            long enqueueFailureDelta = enqueueFailureTotal.sum() - lastReportedFailed;
+            lastReportedFailed = enqueueFailureTotal.sum();
+            if (enqueueFailureDelta > 0) {
+                log.warn("本轮新增入队失败 {} 次（累计 {} 次）", enqueueFailureDelta, enqueueFailureTotal.sum());
             }
         }
     }
